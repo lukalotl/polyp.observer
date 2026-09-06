@@ -1,3 +1,5 @@
+import { MAX_STATE_COUNT } from "../research/genome";
+
 /** The spacetime lattice is packed once, in time order, so scrubbing only changes a draw count. */
 export const LAYER_HEIGHT = 0.72;
 export const VOXEL_WIDTH = 0.92;
@@ -43,7 +45,7 @@ export function packVolume(simulation: VolumeSimulation): PackedVolume {
   const layerEnds = new Uint32Array(layers.length);
   layers.forEach((layer, t) => {
     for (let cell = 0; cell < Math.min(layer.length, size * size); cell++) {
-      if (layer[cell] >= 1 && layer[cell] <= 4) count++;
+      if (layer[cell] >= 1 && layer[cell] < MAX_STATE_COUNT) count++;
     }
     layerEnds[t] = count;
   });
@@ -58,7 +60,7 @@ export function packVolume(simulation: VolumeSimulation): PackedVolume {
   layers.forEach((layer, t) => {
     for (let cell = 0; cell < Math.min(layer.length, size * size); cell++) {
       const state = layer[cell];
-      if (state < 1 || state > 4) continue;
+      if (state < 1 || state >= MAX_STATE_COUNT) continue;
       const x = (cell % size) - center;
       const y = t * LAYER_HEIGHT;
       const z = Math.floor(cell / size) - center;

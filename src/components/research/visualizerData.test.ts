@@ -150,3 +150,22 @@ describe("research visualization data", () => {
     expect(nearestGeneration([], 3)).toBeNull();
   });
 });
+
+it.each([2, 16])(
+  "counts all alleles across every locus with %i states",
+  (stateCount) => {
+    const a = individual("a", Array(stateCount * 9).fill(0));
+    const b = individual("b", Array(stateCount * 9).fill(stateCount - 1));
+    b.genome[0] = 0;
+    const frequencies = alleleFrequencies([a, b]);
+    expect(frequencies).toHaveLength(stateCount);
+    expect(frequencies.every((row) => row.length === stateCount * 9)).toBe(
+      true,
+    );
+    expect(frequencies[0][0]).toBe(1);
+    for (let locus = 1; locus < stateCount * 9; locus++) {
+      expect(frequencies.reduce((sum, row) => sum + row[locus], 0)).toBe(1);
+      expect(frequencies[stateCount - 1][locus]).toBe(0.5);
+    }
+  },
+);

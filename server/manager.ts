@@ -315,11 +315,13 @@ export class RunManager extends EventEmitter {
     return snapshot;
   }
   private reservation(config: RunConfig): number {
+    // Bound three genomes (offspring + parents), source mask and mutation trace.
+    const individualBytes = 2048 + Math.max(0, 9 * config.stateCount - 45) * 24;
     return (
       HISTORY_LIMIT * 512 +
-      IMPROVEMENT_LIMIT * 2048 +
-      config.cacheSize * 768 +
-      config.populationSize * 2048 * (config.retainedSnapshots + 3)
+      IMPROVEMENT_LIMIT * individualBytes +
+      config.cacheSize * (768 + Math.max(0, 9 * config.stateCount - 45)) +
+      config.populationSize * individualBytes * (config.retainedSnapshots + 3)
     );
   }
   private writable(): void {

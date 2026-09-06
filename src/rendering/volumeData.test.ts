@@ -55,7 +55,7 @@ describe("the spacetime render contract", () => {
   it("does not render empty or invalid states, and supports extinction/empty simulations", () => {
     const empty = packVolume({
       size: 1,
-      layers: [Uint8Array.of(0), Uint8Array.of(9)],
+      layers: [Uint8Array.of(0), Uint8Array.of(16)],
     });
     expect(empty.count).toBe(0);
     expect(visibleCount(empty, 2)).toBe(0);
@@ -144,4 +144,26 @@ describe("sampled specimen geometry", () => {
     expect(layerTimeLabel(2)).toBe("2");
     expect(layerTimeLabel(2, [0, 8])).toBe("?");
   });
+});
+
+it("packs and colors all fifteen occupied states without dropping high states", () => {
+  const packed = packVolume({
+    size: 4,
+    layers: [Uint8Array.from({ length: 16 }, (_, i) => i)],
+  });
+  expect(packed.count).toBe(15);
+  expect([...packed.states]).toEqual(
+    Array.from({ length: 15 }, (_, i) => i + 1),
+  );
+  for (const palette of ["mineral", "ember", "ink"] as const) {
+    const colors = instanceColors(packed, palette, 1);
+    expect(colors.every(Number.isFinite)).toBe(true);
+    expect(
+      new Set(
+        Array.from({ length: 15 }, (_, i) =>
+          colors.slice(i * 3, i * 3 + 3).join(","),
+        ),
+      ).size,
+    ).toBe(15);
+  }
 });

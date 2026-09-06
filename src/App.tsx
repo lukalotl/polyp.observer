@@ -329,6 +329,7 @@ export default function App() {
           {
             ...structuredClone(DEFAULT_RUN_CONFIG),
             name: founder.name || "Imported founder",
+            stateCount: 5,
             seedGenome: founder.genome,
             size: founder.config.size,
             steps: founder.config.steps,

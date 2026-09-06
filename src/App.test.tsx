@@ -772,3 +772,38 @@ describe("API-backed research workbench", () => {
     );
   });
 });
+
+describe("editable research state counts", () => {
+  it.each([2, 16])(
+    "edits and submits every row of a %i-state founder, including output cycling",
+    async (stateCount) => {
+      const { onCreate } = dialog();
+      field("State count", stateCount);
+      if (stateCount === 2) field("Founder preset", "life");
+      fireEvent.click(
+        screen.getByRole("button", { name: `Edit ${stateCount * 9} outputs` }),
+      );
+      const rule = screen.getByRole("dialog", { name: "Rule" });
+      const cells = within(rule).getAllByRole("button", {
+        name: /^State \d+, \d+ neighbors:/,
+      });
+      expect(cells).toHaveLength(stateCount * 9);
+      expect(cells[0]).toBeDisabled();
+      const cell = cells.at(-1)!;
+      const previous = Number(cell.textContent);
+      fireEvent.click(cell);
+      expect(Number(cell.textContent)).toBe((previous + 1) % stateCount);
+      // A full alphabet cycle returns to the same output.
+      for (let i = 1; i < stateCount; i++) fireEvent.click(cell);
+      expect(Number(cell.textContent)).toBe(previous);
+      fireEvent.click(within(rule).getByRole("button", { name: "Apply" }));
+      await submit();
+      const config = onCreate.mock.calls[0][0] as RunConfig;
+      expect(config.stateCount).toBe(stateCount);
+      expect(config.seedGenome).toHaveLength(stateCount * 9);
+      expect(
+        config.seedGenome.every((state) => state >= 0 && state < stateCount),
+      ).toBe(true);
+    },
+  );
+});

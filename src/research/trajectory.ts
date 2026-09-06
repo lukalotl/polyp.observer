@@ -19,11 +19,11 @@ function fixtureRandom(seed: number): () => number {
 /** Validated inputs only. The layer callback borrows the reused halo buffer. */
 export function streamTrajectory(
   genome: Genome,
-  config: Pick<RunConfig, "size" | "steps" | "seed">,
+  config: Pick<RunConfig, "size" | "steps" | "seed" | "stateCount">,
   seed: number,
   onLayer?: (time: number, halo: Uint8Array, occupied: number) => void,
 ): Trajectory {
-  const { size, steps } = config;
+  const { size, steps, stateCount } = config;
   const area = size * size,
     stride = size + 2;
   let current = new Uint8Array(stride * stride),
@@ -55,13 +55,13 @@ export function streamTrajectory(
     for (let island = 0; island < 7; island++) {
       const x = center + Math.floor(random() * (2 * radius + 1)) - radius;
       const z = center + Math.floor(random() * (2 * radius + 1)) - radius;
-      place(x, z, 1 + Math.floor(random() * 4));
+      place(x, z, 1 + Math.floor(random() * (stateCount - 1)));
       if (random() < 0.65) place(x + 1, z, 1);
-      if (random() < 0.65) place(x, z + 1, 2);
+      if (random() < 0.65) place(x, z + 1, Math.min(2, stateCount - 1));
     }
   }
   const population = new Float64Array(steps),
-    counts = [0, 0, 0, 0, 0];
+    counts = Array<number>(stateCount).fill(0);
   let live = 0,
     occupied = 0,
     changed = 0,
@@ -127,11 +127,12 @@ export function streamTrajectory(
     [current, next] = [next, current];
   }
   let diversity = 0;
-  if (occupied > 0)
-    for (let state = 1; state < 5; state++) {
+  if (occupied > 0 && stateCount > 2)
+    for (let state = 1; state < stateCount; state++) {
       const proportion = counts[state] / occupied;
       if (proportion > 0)
-        diversity -= (proportion * Math.log(proportion)) / Math.log(4);
+        diversity -=
+          (proportion * Math.log(proportion)) / Math.log(stateCount - 1);
     }
   return {
     size,

@@ -1524,3 +1524,74 @@ input[type="range"]:disabled {
   border-radius: 2px;
   white-space: nowrap;
 }
+
+.gene-5,
+.rv-state-5 {
+  background: hsl(323 40% 62%);
+  color: #111a14;
+}
+
+.gene-6,
+.rv-state-6 {
+  background: hsl(186 40% 62%);
+  color: #111a14;
+}
+
+.gene-7,
+.rv-state-7 {
+  background: hsl(48 40% 62%);
+  color: #111a14;
+}
+
+.gene-8,
+.rv-state-8 {
+  background: hsl(271 40% 62%);
+  color: #111a14;
+}
+
+.gene-9,
+.rv-state-9 {
+  background: hsl(133 40% 62%);
+  color: #111a14;
+}
+
+.gene-10,
+.rv-state-10 {
+  background: hsl(356 40% 62%);
+  color: #111a14;
+}
+
+.gene-11,
+.rv-state-11 {
+  background: hsl(218 40% 62%);
+  color: #111a14;
+}
+
+.gene-12,
+.rv-state-12 {
+  background: hsl(81 40% 62%);
+  color: #111a14;
+}
+
+.gene-13,
+.rv-state-13 {
+  background: hsl(303 40% 62%);
+  color: #111a14;
+}
+
+.gene-14,
+.rv-state-14 {
+  background: hsl(166 40% 62%);
+  color: #111a14;
+}
+
+.gene-15,
+.rv-state-15 {
+  background: hsl(28 40% 62%);
+  color: #111a14;
+}
+
+.rule-dialog {
+  max-height: 90vh;
+  overflow-y: auto;
+}

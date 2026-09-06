@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type { GenerationSnapshot, Individual } from "../../research/types";
 import { formatFitness, geneLabel, rankPopulation } from "./visualizerData";
 import "./visualizers.css";
@@ -45,8 +51,19 @@ export default function PopulationView({
       </div>
     );
   const start = currentPage * PAGE_SIZE;
+  const geneCount = ranked[0].genome.length;
+  const stateCount = geneCount / 9;
   return (
-    <section className="rv-panel rv-population" aria-label="Ranked population">
+    <section
+      className="rv-panel rv-population"
+      aria-label="Ranked population"
+      style={
+        {
+          "--gene-count": geneCount,
+          "--state-count": stateCount,
+        } as CSSProperties
+      }
+    >
       <div className="rv-toolbar">
         <span className="rv-muted">
           Generation {snapshot.generation} · {ranked.length} individuals ·
@@ -103,9 +120,11 @@ export default function PopulationView({
               <th scope="col" className="rv-genome-column">
                 <span>Rule outputs · current state / active neighbors 0–8</span>
                 <div className="rv-state-header" aria-hidden="true">
-                  {[0, 1, 2, 3, 4].map((state) => (
-                    <span key={state}>s{state}</span>
-                  ))}
+                  {Array.from({ length: stateCount }, (_, state) => state).map(
+                    (state) => (
+                      <span key={state}>s{state}</span>
+                    ),
+                  )}
                 </div>
               </th>
             </tr>
@@ -153,7 +172,10 @@ export default function PopulationView({
                   {individual.origin}
                 </td>
                 <td>
-                  <div className="rv-gene-strip" aria-label="45 rule outputs">
+                  <div
+                    className="rv-gene-strip"
+                    aria-label={`${geneCount} rule outputs`}
+                  >
                     {individual.genome.map((output, locus) => (
                       <span
                         key={locus}
@@ -171,13 +193,15 @@ export default function PopulationView({
       </div>
       <div className="rv-legend">
         <span>Output</span>
-        {[0, 1, 2, 3, 4].map((state) => (
-          <span key={state}>
-            <i className={`rv-gene rv-state-${state}`} />
-            {state}
-            {state === 0 ? " empty" : ""}
-          </span>
-        ))}
+        {Array.from({ length: stateCount }, (_, state) => state).map(
+          (state) => (
+            <span key={state}>
+              <i className={`rv-gene rv-state-${state}`} />
+              {state}
+              {state === 0 ? " empty" : ""}
+            </span>
+          ),
+        )}
         <span>
           <i className="rv-gene rv-state-0 rv-quiescent" />
           fixed quiescent locus

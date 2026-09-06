@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { MAX_STATE_COUNT } from "../research/genome";
 import type { PackedVolume } from "./volumeData";
 
 export type VolumePalette = "mineral" | "ember" | "ink";
@@ -16,7 +17,18 @@ export function instanceColors(
   layerCount: number,
 ): Float32Array {
   const colors = new Float32Array(data.count * 3);
-  const swatches = PALETTES[palette].map((hex) => new THREE.Color(hex));
+  const swatches = Array.from({ length: MAX_STATE_COUNT - 1 }, (_, index) => {
+    const hex = PALETTES[palette][index];
+    if (hex) return new THREE.Color(hex);
+    // Keep established state colors; extend with evenly distributed hues.
+    const hueOffset =
+      palette === "mineral" ? 0.28 : palette === "ember" ? 0.04 : 0.56;
+    return new THREE.Color().setHSL(
+      (hueOffset + (index - 3) * 0.61803398875) % 1,
+      0.4,
+      0.62,
+    );
+  });
   const color = new THREE.Color();
   for (let index = 0; index < data.count; index++) {
     const x = data.positions[index * 3];

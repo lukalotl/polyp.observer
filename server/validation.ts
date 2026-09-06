@@ -1,5 +1,13 @@
-import { MODEL_VERSION, type RunCheckpoint } from "../src/research/types";
-import { validateRunConfig } from "../src/research/config";
+import {
+  MODEL_VERSION,
+  LEGACY_MODEL_VERSION,
+  type RunCheckpoint,
+} from "../src/research/types";
+import {
+  validateRunConfig,
+  validateGenome,
+  migrateLegacyRunConfig,
+} from "../src/research/config";
 import {
   validateEngineState,
   generationSnapshot,
@@ -36,17 +44,18 @@ export function fields(
   )
     throw new HttpError(400, "Missing or unsupported JSON fields.");
 }
-export function genome(value: unknown): asserts value is number[] {
-  if (
-    !Array.isArray(value) ||
-    value.length !== 45 ||
-    value[0] !== 0 ||
-    value.some((n) => !Number.isInteger(n) || n < 0 || n > 4)
-  )
+export function genome(
+  value: unknown,
+  stateCount = 5,
+): asserts value is number[] {
+  try {
+    validateGenome(value, stateCount);
+  } catch (error) {
     throw new HttpError(
       400,
-      "Genome must have 45 integer states (0–4), with gene 0 locked to 0.",
+      error instanceof Error ? error.message : "Invalid genome.",
     );
+  }
 }
 export function optionalBoolean(value: unknown): boolean {
   if (value !== undefined && typeof value !== "boolean")
@@ -129,10 +138,15 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
   if (
     value.format !== "polyp-research-checkpoint" ||
     value.version !== 1 ||
-    value.modelVersion !== MODEL_VERSION
+    (value.modelVersion !== MODEL_VERSION &&
+      value.modelVersion !== LEGACY_MODEL_VERSION)
   )
     throw new Error("Unsupported checkpoint format or model version.");
-  const config = validateRunConfig(value.config);
+  const config =
+    value.modelVersion === LEGACY_MODEL_VERSION
+      ? migrateLegacyRunConfig(value.config)
+      : validateRunConfig(value.config);
+  const geneCount = 9 * config.stateCount;
   runName(config.name);
   if (
     typeof value.elapsedMs !== "number" ||
@@ -140,12 +154,12 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
     !date(value.createdAt)
   )
     throw new Error("Invalid checkpoint time metadata.");
+  let state: RunCheckpoint["state"] = null;
   if (value.state !== null) {
-    value.state = validateEngineState(value.state);
-    if (
-      JSON.stringify((value.state as RunCheckpoint["state"])!.config) !==
-      JSON.stringify(config)
-    )
+    if (!record(value.state) || value.state.modelVersion !== value.modelVersion)
+      throw new Error("Checkpoint and engine model versions disagree.");
+    state = validateEngineState(value.state);
+    if (JSON.stringify(state.config) !== JSON.stringify(config))
       throw new Error("Checkpoint state/config disagree.");
   }
   if (
@@ -155,7 +169,6 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
     value.improvements.length > IMPROVEMENT_LIMIT
   )
     throw new Error("Checkpoint history exceeds retained limits.");
-  const state = value.state as RunCheckpoint["state"];
   let previous = -1;
   for (const point of value.history) {
     if (
@@ -244,7 +257,7 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
         "metrics",
       ],
     );
-    genome(individual.genome);
+    genome(individual.genome, config.stateCount);
     if (
       !Number.isSafeInteger(individual.birthGeneration) ||
       (individual.birthGeneration as number) < 0 ||
@@ -263,14 +276,15 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
       !Array.isArray(individual.parents) ||
       individual.parents.length > 2 ||
       !Array.isArray(individual.crossoverMask) ||
-      individual.crossoverMask.length !== 45 ||
+      individual.crossoverMask.length !== geneCount ||
       individual.crossoverMask.some(
         (value) => !Number.isInteger(value) || value < 0 || value > 1,
       ) ||
       !Array.isArray(individual.mutatedLoci) ||
-      individual.mutatedLoci.length > 44 ||
+      individual.mutatedLoci.length > geneCount - 1 ||
       individual.mutatedLoci.some(
-        (value) => !Number.isInteger(value) || value < 1 || value > 44,
+        (value) =>
+          !Number.isInteger(value) || value < 1 || value > geneCount - 1,
       )
     )
       throw new Error("Invalid historic genetic trace.");
@@ -280,7 +294,7 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
         ["id", "genome", "fitness", "birthGeneration"],
         ["id", "genome", "fitness", "birthGeneration"],
       );
-      genome(parent.genome);
+      genome(parent.genome, config.stateCount);
       if (
         typeof parent.id !== "string" ||
         typeof parent.fitness !== "number" ||
@@ -336,5 +350,10 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
       throw new Error("Invalid historic champion.");
     previous = point.generation as number;
   }
-  return value as unknown as RunCheckpoint;
+  return {
+    ...value,
+    modelVersion: MODEL_VERSION,
+    config,
+    state,
+  } as unknown as RunCheckpoint;
 }

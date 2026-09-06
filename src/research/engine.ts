@@ -6,10 +6,12 @@ import {
   record,
   validateGenome,
   validateRunConfig,
+  migrateLegacyRunConfig,
 } from "./config";
 import { evaluateBatch } from "./evaluate";
 import {
   MODEL_VERSION,
+  LEGACY_MODEL_VERSION,
   type BatchEvaluator,
   type CachedEvaluation,
   type EngineState,
@@ -21,7 +23,7 @@ import {
   type RunConfig,
 } from "./types";
 
-const GENE_COUNT = 45;
+import { genomeKey as keyOf } from "./genome";
 const metricKeys: (keyof FitnessMetrics)[] = [
   "diversity",
   "activity",
@@ -62,7 +64,6 @@ const stateKeys = [
   "cacheHits",
   "cache",
 ];
-const keyOf = (genome: Genome): string => genome.join(""); // collision-free for exactly 45 base-five digits
 const copy = <T>(value: T): T => structuredClone(value);
 
 class Random {
@@ -77,16 +78,17 @@ class Random {
     return Math.floor(this.next() * length);
   }
 }
-function randomGenome(random: Random): Genome {
-  return Array.from({ length: GENE_COUNT }, (_, i) =>
-    i === 0 ? 0 : random.index(5),
+function randomGenome(random: Random, stateCount: number): Genome {
+  return Array.from({ length: 9 * stateCount }, (_, i) =>
+    i === 0 ? 0 : random.index(stateCount),
   );
 }
 function mutate(genome: Genome, rate: number, random: Random): number[] {
+  const stateCount = genome.length / 9;
   const loci: number[] = [];
-  for (let i = 1; i < GENE_COUNT; i++)
+  for (let i = 1; i < genome.length; i++)
     if (random.next() < rate) {
-      genome[i] = (genome[i] + 1 + random.index(4)) % 5;
+      genome[i] = (genome[i] + 1 + random.index(stateCount - 1)) % stateCount;
       loci.push(i);
     }
   return loci;
@@ -235,7 +237,7 @@ export async function initializePopulation(
   for (let i = 0; i < checked.populationSize; i++) {
     const genome =
       checked.initialization === "random"
-        ? randomGenome(random)
+        ? randomGenome(random, checked.stateCount)
         : checked.seedGenome.slice();
     const mutatedLoci =
       checked.initialization === "mutants" && i > 0
@@ -254,7 +256,7 @@ export async function initializePopulation(
               ? "mutant"
               : "clone",
       parents: [],
-      crossoverMask: Array(GENE_COUNT).fill(0),
+      crossoverMask: Array(genome.length).fill(0),
       mutatedLoci,
     });
   }
@@ -269,10 +271,12 @@ export async function initializePopulation(
     transaction,
     evaluate,
   );
-  const population = metadata.map((item, index): Individual => ({
-    ...item,
-    ...results[index],
-  }));
+  const population = metadata.map(
+    (item, index): Individual => ({
+      ...item,
+      ...results[index],
+    }),
+  );
   if (checked.initialization === "mutants")
     for (const item of population.slice(1))
       item.parents = [parentRef(population[0])];
@@ -309,7 +313,7 @@ function selector(
   // Linear-rank pressure (1..N), averaging ranks for ties avoids ID/order bias
   // on neutral plateaus and uses no held-out scores.
   const weights = ranked.map((_, i) => i + 1);
-  for (let start = 0; start < ranked.length;) {
+  for (let start = 0; start < ranked.length; ) {
     let end = start + 1;
     while (end < ranked.length && ranked[end].fitness === ranked[start].fitness)
       end++;
@@ -354,8 +358,10 @@ export async function advanceGeneration(
     const isImmigrant = i >= children;
     const first = isImmigrant ? null : select();
     const parents = first ? [parentRef(first)] : [];
-    const genome = first ? first.genome.slice() : randomGenome(random);
-    const crossoverMask = Array(GENE_COUNT).fill(0);
+    const genome = first
+      ? first.genome.slice()
+      : randomGenome(random, config.stateCount);
+    const crossoverMask = Array(genome.length).fill(0);
     let crossed = false;
     if (
       first &&
@@ -365,8 +371,11 @@ export async function advanceGeneration(
       const second = select();
       parents.push(parentRef(second));
       crossed = true;
-      const cut = config.crossover === "onePoint" ? 1 + random.index(43) : 0;
-      for (let locus = 1; locus < GENE_COUNT; locus++) {
+      const cut =
+        config.crossover === "onePoint"
+          ? 1 + random.index(genome.length - 2)
+          : 0;
+      for (let locus = 1; locus < genome.length; locus++) {
         const fromSecond =
           config.crossover === "onePoint" ? locus > cut : random.next() < 0.5;
         if (fromSecond) {
@@ -401,10 +410,12 @@ export async function advanceGeneration(
   );
   state.population = [
     ...elites,
-    ...metadata.map((item, index): Individual => ({
-      ...item,
-      ...results[index],
-    })),
+    ...metadata.map(
+      (item, index): Individual => ({
+        ...item,
+        ...results[index],
+      }),
+    ),
   ];
   const best = state.population.reduce((best, item) =>
     item.fitness > best.fitness ? item : best,
@@ -417,19 +428,21 @@ export async function advanceGeneration(
 
 /** Detached snapshot: callers may serialize/render freely without aliasing live state. */
 export function generationSnapshot(state: EngineState): GenerationSnapshot {
+  const { stateCount } = state.config;
+  const geneCount = 9 * stateCount;
   const fitnesses = state.population
     .map((item) => item.fitness)
     .sort((a, b) => a - b);
   const count = fitnesses.length,
     middle = Math.floor(count / 2);
   let diversity = 0;
-  for (let locus = 1; locus < GENE_COUNT; locus++) {
-    const counts = [0, 0, 0, 0, 0];
+  for (let locus = 1; locus < geneCount; locus++) {
+    const counts = Array<number>(stateCount).fill(0);
     for (const item of state.population) counts[item.genome[locus]]++;
     for (const frequency of counts)
       if (frequency) {
         const p = frequency / count;
-        diversity -= (p * Math.log(p)) / Math.log(5) / 44;
+        diversity -= (p * Math.log(p)) / Math.log(stateCount) / (geneCount - 1);
       }
   }
   const validation = state.population.flatMap((item) =>
@@ -466,9 +479,16 @@ export function generationSnapshot(state: EngineState): GenerationSnapshot {
 export function validateEngineState(value: unknown): EngineState {
   const v = record(value, "Engine state");
   exactKeys(v, stateKeys, "Engine state");
+  if (v.version === 1 && v.modelVersion === LEGACY_MODEL_VERSION)
+    return validateEngineState({
+      ...v,
+      modelVersion: MODEL_VERSION,
+      config: migrateLegacyRunConfig(v.config),
+    });
   if (v.version !== 1 || v.modelVersion !== MODEL_VERSION)
     throw new RangeError("Unsupported engine/model version.");
   const config = validateRunConfig(v.config);
+  const geneCount = 9 * config.stateCount;
   const generation = integer(v.generation, 0, 1_000_000_000, "Generation");
   if (config.maxGenerations > 0 && generation > config.maxGenerations)
     throw new RangeError("Generation exceeds configured limit.");
@@ -496,7 +516,7 @@ export function validateEngineState(value: unknown): EngineState {
     exactKeys(p, ["id", "genome", "fitness", "birthGeneration"], "Parent");
     return {
       id: id(p.id),
-      genome: validateGenome(p.genome),
+      genome: validateGenome(p.genome, config.stateCount),
       fitness: finite(p.fitness, 0, 1, "Parent fitness"),
       birthGeneration: integer(
         p.birthGeneration,
@@ -510,7 +530,7 @@ export function validateEngineState(value: unknown): EngineState {
     const item = record(value, "Individual");
     exactKeys(item, individualKeys, "Individual");
     const individualId = id(item.id),
-      genome = validateGenome(item.genome);
+      genome = validateGenome(item.genome, config.stateCount);
     const birthGeneration = integer(
       item.birthGeneration,
       0,
@@ -530,18 +550,21 @@ export function validateEngineState(value: unknown): EngineState {
       throw new RangeError("Parents must precede their offspring.");
     if (
       !Array.isArray(item.crossoverMask) ||
-      item.crossoverMask.length !== GENE_COUNT
+      item.crossoverMask.length !== geneCount
     )
-      throw new RangeError("Crossover mask must have 45 entries.");
+      throw new RangeError(`Crossover mask must have ${geneCount} entries.`);
     const crossoverMask = Array.from(item.crossoverMask, (entry) =>
       integer(entry, 0, Math.max(0, parents.length - 1), "Crossover mask"),
     );
     if (crossoverMask[0] !== 0)
       throw new RangeError("Crossover cannot alter quiescent locus.");
-    if (!Array.isArray(item.mutatedLoci) || item.mutatedLoci.length > 44)
+    if (
+      !Array.isArray(item.mutatedLoci) ||
+      item.mutatedLoci.length > geneCount - 1
+    )
       throw new RangeError("Invalid mutation trace.");
     const mutatedLoci = Array.from(item.mutatedLoci, (locus) =>
-      integer(locus, 1, 44, "Mutated locus"),
+      integer(locus, 1, geneCount - 1, "Mutated locus"),
     );
     if (
       mutatedLoci.some(
@@ -576,7 +599,7 @@ export function validateEngineState(value: unknown): EngineState {
     )
       throw new RangeError("Origin contradicts ancestry/mutation trace.");
     if (parents.length)
-      for (let locus = 0; locus < GENE_COUNT; locus++) {
+      for (let locus = 0; locus < genome.length; locus++) {
         const source = parents[crossoverMask[locus]].genome[locus];
         if ((genome[locus] !== source) !== mutatedLoci.includes(locus))
           throw new RangeError("Genome contradicts crossover/mutation trace.");
@@ -614,7 +637,15 @@ export function validateEngineState(value: unknown): EngineState {
   const cache = Array.from(v.cache, (value) => {
     const item = record(value, "Cache entry");
     exactKeys(item, ["key", "evaluation"], "Cache entry");
-    if (typeof item.key !== "string" || !/^0[0-4]{44}$/.test(item.key))
+    if (
+      typeof item.key !== "string" ||
+      item.key.length !== geneCount ||
+      item.key[0] !== "0" ||
+      [...item.key].some(
+        (char) =>
+          !/^[0-9a-f]$/.test(char) || parseInt(char, 16) >= config.stateCount,
+      )
+    )
       throw new RangeError("Cache key must be a complete quiescent genome.");
     return { key: item.key, evaluation: evaluation(item.evaluation, config) };
   });

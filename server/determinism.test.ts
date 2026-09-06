@@ -544,3 +544,127 @@ test("CLI parsing and forwarded origin aliases remain exact, not suffix wildcard
   );
   assert.ok(!aliases.has("https://other-our-workspace.example.test"));
 });
+
+test("binary and sixteen-state jobs evaluate, preview, export, import and continue on real workers", async () => {
+  await fixture(async (port) => {
+    for (const stateCount of [2, 16]) {
+      const genome = Array(stateCount * 9).fill(0);
+      for (let s = 1; s < stateCount - 1; s++) genome[s * 9] = s + 1;
+      const cfg = base({
+        stateCount,
+        seedGenome: genome,
+        seed: "point",
+        steps: 32,
+        mutationRate: 0.3,
+        crossoverRate: 1,
+      });
+      const run = await api(port, "runs", { config: cfg });
+      await api(port, `runs/${run.summary.id}/actions`, { action: "step" });
+      const initialized = await state(port, run.summary.id, "paused", 0);
+      const oracle = await initializePopulation(cfg);
+      assert.deepEqual(initialized.snapshot, generationSnapshot(oracle));
+      const preview = await api(port, `runs/${run.summary.id}/preview`, {
+        genome,
+        seed: 1729,
+      });
+      assert.equal(preview.simulation.lifetime, stateCount - 1);
+      for (let time = 0; time < stateCount - 1; time++)
+        assert.equal(
+          Buffer.from(preview.simulation.layers[time], "base64")[40],
+          time + 1,
+        );
+      const exported = await api(port, `runs/${run.summary.id}/checkpoint`);
+      const imported = await api(port, "runs/import", { checkpoint: exported });
+      assert.equal(imported.config.stateCount, stateCount);
+      await api(port, `runs/${imported.summary.id}/actions`, {
+        action: "step",
+      });
+      const continued = await state(port, imported.summary.id, "paused", 1);
+      assert.deepEqual(
+        continued.snapshot,
+        generationSnapshot(await advanceGeneration(oracle)),
+      );
+      const invalidGenome = genome.slice();
+      invalidGenome[1] = stateCount;
+      const rejected = await fetch(
+        `http://127.0.0.1:${port}/api/runs/${run.summary.id}/preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ genome: invalidGenome, seed: 1729 }),
+        },
+      );
+      assert.equal(rejected.status, 400);
+      assert.match(
+        ((await rejected.json()) as { error: string }).error,
+        /Gene 1/,
+      );
+    }
+  });
+});
+
+test("legacy five-state checkpoint imports and on-disk archives migrate without changing the scientific continuation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "polyp-state-migration-"));
+  let server = await startResearchServer({
+    port: 0,
+    host: "127.0.0.1",
+    dataDir: dir,
+  });
+  try {
+    const cfg = base();
+    const created = await api(server.port, "runs", { config: cfg });
+    const id = created.summary.id;
+    for (let generation = 0; generation <= 2; generation++) {
+      await api(server.port, `runs/${id}/actions`, { action: "step" });
+      await state(server.port, id, "paused", generation);
+    }
+    const before = await api(server.port, `runs/${id}/checkpoint`);
+    const asLegacy = (checkpoint: any) => {
+      checkpoint.modelVersion = "ca5-moore-research-v1";
+      delete checkpoint.config.stateCount;
+      if (checkpoint.state) {
+        checkpoint.state.modelVersion = "ca5-moore-research-v1";
+        delete checkpoint.state.config.stateCount;
+      }
+      return checkpoint;
+    };
+    const legacy = asLegacy(structuredClone(before));
+    const imported = await api(server.port, "runs/import", {
+      checkpoint: legacy,
+    });
+    assert.deepEqual(
+      (await api(server.port, `runs/${imported.summary.id}/checkpoint`)).state,
+      before.state,
+    );
+    await server.close();
+    const file = join(dir, id + ".json"),
+      stored = JSON.parse(await readFile(file, "utf8"));
+    asLegacy(stored.checkpoint);
+    assert.ok(stored.archives.length >= 2);
+    await writeFile(file, JSON.stringify(stored));
+    server = await startResearchServer({
+      port: 0,
+      host: "127.0.0.1",
+      dataDir: dir,
+    });
+    assert.deepEqual(
+      (await api(server.port, `runs/${id}/checkpoint`)).state,
+      before.state,
+    );
+    const historic = await api(server.port, `runs/${id}/generations/0`);
+    assert.deepEqual(
+      historic,
+      generationSnapshot(await initializePopulation(cfg)),
+    );
+    await api(server.port, `runs/${id}/actions`, { action: "step" });
+    const continued = await state(server.port, id, "paused", 3);
+    assert.deepEqual(
+      continued.snapshot,
+      generationSnapshot(await advanceGeneration(before.state)),
+    );
+    assert.deepEqual((await api(server.port, "health")).recoveryErrors, []);
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -1,10 +1,12 @@
 import { PRESETS, type Genome } from "../simulation";
+import { MIN_STATE_COUNT, MAX_STATE_COUNT } from "./genome";
 import type { RunConfig } from "./types";
 import { MAX_GRID_SIZE, MAX_CA_STEPS, maxHorizon } from "./limits";
 
-/** Scientific model is fixed: five states, 45 genes, zero-quiescence, Moore/zero halo. */
+/** Outer-totalistic Moore CA: configurable states, zero-quiescence and zero halo. */
 export const DEFAULT_RUN_CONFIG: RunConfig = {
   name: "Experiment",
+  stateCount: 5,
   size: 129,
   steps: 2048,
   seed: "cross",
@@ -95,12 +97,16 @@ function choice<T extends string>(
     throw new RangeError(`Unknown ${label}.`);
   return value as T;
 }
-export function validateGenome(value: unknown): Genome {
-  if (!Array.isArray(value) || value.length !== 45)
-    throw new RangeError("Genome must contain 45 genes.");
+export function validateGenome(value: unknown, stateCount = 5): Genome {
+  integer(stateCount, MIN_STATE_COUNT, MAX_STATE_COUNT, "State count");
+  const geneCount = 9 * stateCount;
+  if (!Array.isArray(value) || value.length !== geneCount)
+    throw new RangeError(
+      `Genome must contain ${geneCount} genes for ${stateCount} states.`,
+    );
   const genome: Genome = [];
-  for (let i = 0; i < 45; i++)
-    genome.push(integer(value[i], 0, 4, `Gene ${i}`));
+  for (let i = 0; i < geneCount; i++)
+    genome.push(integer(value[i], 0, stateCount - 1, `Gene ${i}`));
   if (genome[0] !== 0)
     throw new RangeError("Gene 0 must remain quiescent (0).");
   return genome;
@@ -126,6 +132,12 @@ export function validateRunConfig(value: unknown): RunConfig {
     throw new RangeError(
       "Name must contain 1 through 80 characters and not be blank.",
     );
+  const stateCount = integer(
+    v.stateCount,
+    MIN_STATE_COUNT,
+    MAX_STATE_COUNT,
+    "State count",
+  );
   const size = integer(v.size, 9, MAX_GRID_SIZE, "Size");
   const steps = integer(v.steps, 8, MAX_CA_STEPS, "Steps");
   if (size % 2 !== 1) throw new RangeError("Size must be odd.");
@@ -167,6 +179,7 @@ export function validateRunConfig(value: unknown): RunConfig {
     );
   return {
     name: v.name,
+    stateCount,
     size,
     steps,
     seed: choice(v.seed, ["point", "cross", "islands"], "seed"),
@@ -179,7 +192,7 @@ export function validateRunConfig(value: unknown): RunConfig {
     ),
     aggregation: choice(v.aggregation, ["mean", "minimum"], "aggregation"),
     weights,
-    seedGenome: validateGenome(v.seedGenome),
+    seedGenome: validateGenome(v.seedGenome, stateCount),
     initialization: choice(
       v.initialization,
       ["mutants", "random"],
@@ -231,4 +244,15 @@ export function validateRunConfig(value: unknown): RunConfig {
     ),
     resumeOnRestart: v.resumeOnRestart,
   };
+}
+
+/** Only the explicitly versioned five-state checkpoint format may omit stateCount. */
+export function migrateLegacyRunConfig(value: unknown): RunConfig {
+  const v = record(value, "Legacy configuration");
+  exactKeys(
+    v,
+    Object.keys(DEFAULT_RUN_CONFIG).filter((key) => key !== "stateCount"),
+    "Legacy configuration",
+  );
+  return validateRunConfig({ ...v, stateCount: 5 });
 }

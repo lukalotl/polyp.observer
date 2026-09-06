@@ -14,6 +14,7 @@ describe("pinned, bounded research configuration", () => {
     const result = validateRunConfig(DEFAULT_RUN_CONFIG);
     expect(result).toEqual({
       name: "Experiment",
+      stateCount: 5,
       size: 129,
       steps: 2048,
       seed: "cross",

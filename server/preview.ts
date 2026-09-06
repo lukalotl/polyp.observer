@@ -33,6 +33,7 @@ export class PreviewService {
       return Promise.reject(new HttpError(503, "Server is shutting down."));
     const key = JSON.stringify([
       genome,
+      config.stateCount,
       config.size,
       config.steps,
       config.seed,

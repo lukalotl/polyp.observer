@@ -1,6 +1,6 @@
 # Polyp research
 
-A compact, VM-backed research workbench for evolving five-state 2D cellular
+A compact, VM-backed research workbench for evolving 2–16-state 2D cellular
 automata. The 3D inspector shows a rule's 2D history stacked through time.
 
 ## Start
@@ -29,6 +29,11 @@ startup/recovery, and deployment boundaries.
 
 ## Workbench
 
+- **State count**: choose 2–16 in New run or New variant; 0 is empty. Binary
+  runs offer Life and HighLife founders. Each state has nine rule entries, one
+  per occupied-neighbor count. Five states remain the default. Changing the
+  count preserves existing rows, maps removed outputs to 1, and gives new rows
+  state 1's transitions. Saved five-state runs migrate without reevaluation.
 - **Simulation scale**: new runs use 129×129 cells over 2,048 CA timesteps.
   Quick, Deep, Wide and Long presets are available, plus custom grids up to
   1,025×1,025 and horizons up to 65,536. A combined budget of 1,073,741,824
@@ -48,7 +53,7 @@ startup/recovery, and deployment boundaries.
   limit of `0` is unlimited. Closing every browser does not stop a run.
 - **Run queue**: FIFO admission under real coordinator/evaluator CPU budgets.
   Multiple runs share capacity without exceeding configured training limits.
-- **Population**: ranked, paginated individuals with all 45 genes, training and
+- **Population**: ranked, paginated individuals with all 9 × state-count genes, training and
   held-out fitness, birth generation and origin. Click a row to inspect it.
 - **Genetics**: actual immediate parents, crossover source, changed loci, rule
   matrix and allele frequencies. It does not invent ancestry outside recorded
@@ -125,7 +130,7 @@ RSS, population/cache memory). Run it yourself:
 node --expose-gc scripts/benchmark-research.mjs
 ```
 
-The scientific model remains a five-state, outer-totalistic Moore CA with fixed
+The scientific model is a 2–16-state, outer-totalistic Moore CA with fixed
 zero boundaries: `next = rule[currentState * 9 + occupiedNeighbors]`. Selection
 uses training fitness only; held-out results are separately recorded. Point/cross
 fixtures are deterministic, so changing their fixture seeds does not provide

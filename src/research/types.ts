@@ -1,6 +1,7 @@
 import type { Genome, Objective, SeedMode, Simulation } from "../simulation";
 
-export const MODEL_VERSION = "ca5-moore-research-v1";
+export const LEGACY_MODEL_VERSION = "ca5-moore-research-v1";
+export const MODEL_VERSION = "ca-moore-research-v2";
 
 export interface FitnessWeights {
   diversity: number;
@@ -10,6 +11,7 @@ export interface FitnessWeights {
 }
 export interface RunConfig {
   name: string;
+  stateCount: number;
   size: number;
   steps: number;
   seed: SeedMode;
@@ -63,7 +65,12 @@ export interface ParentRef {
   birthGeneration: number;
 }
 export type IndividualOrigin =
-  "founder" | "random" | "mutant" | "crossover" | "clone" | "immigrant";
+  | "founder"
+  | "random"
+  | "mutant"
+  | "crossover"
+  | "clone"
+  | "immigrant";
 export interface Individual extends Evaluation {
   id: string;
   genome: Genome;

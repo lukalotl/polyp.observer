@@ -7,6 +7,7 @@ import type { RunConfig, RunDetail, RunSummary } from "../../research/types";
 const colors = ["#b1cc9a", "#dca777", "#91bac8", "#bf9ec9"];
 function evaluationKey(config: RunConfig) {
   return JSON.stringify([
+    config.stateCount,
     config.size,
     config.steps,
     config.seed,

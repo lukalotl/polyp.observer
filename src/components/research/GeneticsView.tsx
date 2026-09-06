@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import type {
   GenerationSnapshot,
   Individual,
@@ -96,6 +96,12 @@ export default function GeneticsView({
     <section
       className="rv-panel rv-genetics"
       aria-label="Genetics and immediate ancestry"
+      style={
+        {
+          "--gene-count": individual.genome.length,
+          "--state-count": individual.genome.length / 9,
+        } as CSSProperties
+      }
     >
       <div className="rv-toolbar">
         <span className="rv-id" title={individual.id}>
@@ -214,7 +220,10 @@ export default function GeneticsView({
               </tr>
             </thead>
             <tbody>
-              {[0, 1, 2, 3, 4].map((state) => (
+              {Array.from(
+                { length: individual.genome.length / 9 },
+                (_, state) => state,
+              ).map((state) => (
                 <tr key={state}>
                   <th scope="row">
                     {state}
@@ -264,7 +273,7 @@ export default function GeneticsView({
                   <div
                     className="rv-frequencies"
                     role="img"
-                    aria-label="Allele frequencies for each of 45 loci and five output states"
+                    aria-label={`Allele frequencies for each of ${individual.genome.length} loci and ${individual.genome.length / 9} output states`}
                   >
                     {alleles.map((row, state) => (
                       <div className="rv-ancestry-row" key={state}>

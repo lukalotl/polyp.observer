@@ -1,7 +1,5 @@
 import type { Individual, HistoryPoint } from "../../research/types";
 
-export const GENE_COUNT = 45;
-export const STATE_COUNT = 5;
 export const geneCase = (locus: number) => ({
   state: Math.floor(locus / 9),
   neighbors: locus % 9,
@@ -24,14 +22,18 @@ export function traceGene(individual: Individual, locus: number) {
 /** Fractions, not color bins: each locus column sums to 1 for a nonempty population. */
 export function alleleFrequencies(
   population: readonly Individual[],
+  stateCount = population[0]?.genome.length
+    ? population[0].genome.length / 9
+    : 5,
 ): number[][] {
-  const counts = Array.from({ length: STATE_COUNT }, () =>
-    Array<number>(GENE_COUNT).fill(0),
+  const geneCount = 9 * stateCount;
+  const counts = Array.from({ length: stateCount }, () =>
+    Array<number>(geneCount).fill(0),
   );
   if (population.length === 0) return counts;
   for (const individual of population)
     individual.genome.forEach((value, locus) => {
-      if (counts[value] && locus < GENE_COUNT) counts[value][locus]++;
+      if (counts[value] && locus < geneCount) counts[value][locus]++;
     });
   return counts.map((row) => row.map((count) => count / population.length));
 }
@@ -45,7 +47,12 @@ export function rankPopulation(population: readonly Individual[]) {
     .map(({ individual }) => individual);
 }
 export type HistoryMetric =
-  "bestEver" | "best" | "mean" | "worst" | "validationBest" | "diversity";
+  | "bestEver"
+  | "best"
+  | "mean"
+  | "worst"
+  | "validationBest"
+  | "diversity";
 /** Missing values break a line. Never interpolate through unevaluated held-out generations. */
 export function historySegments(
   history: readonly HistoryPoint[],

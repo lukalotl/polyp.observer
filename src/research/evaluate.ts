@@ -101,7 +101,8 @@ function evaluateValid(genome: Genome, config: RunConfig): Evaluation {
 }
 
 export function evaluateGenome(genome: Genome, config: RunConfig): Evaluation {
-  return evaluateValid(validateGenome(genome), validateRunConfig(config));
+  const checked = validateRunConfig(config);
+  return evaluateValid(validateGenome(genome, checked.stateCount), checked);
 }
 /** Inline reference implementation. Parallel executors must return INPUT order, not completion order. */
 export async function evaluateBatch(
@@ -112,6 +113,6 @@ export async function evaluateBatch(
   if (!Array.isArray(genomes) || genomes.length > 512)
     throw new RangeError("Evaluation batch exceeds 512 candidates.");
   return Array.from(genomes, (genome) =>
-    evaluateValid(validateGenome(genome), checked),
+    evaluateValid(validateGenome(genome, checked.stateCount), checked),
   );
 }

@@ -131,11 +131,11 @@
 }
 .rv-genome-column {
   width: 49%;
-  min-width: 360px;
+  min-width: max(360px, calc(var(--gene-count, 45) * 8px));
 }
 .rv-state-header {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(var(--state-count, 5), 1fr);
   gap: 2px;
   font-size: 9px;
   margin-top: 3px;
@@ -145,7 +145,7 @@
 }
 .rv-gene-strip {
   display: grid;
-  grid-template-columns: repeat(45, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--gene-count, 45), minmax(0, 1fr));
   gap: 1px;
   min-width: 0;
   width: 100%;
@@ -247,6 +247,7 @@
   margin: 14px 0 10px;
 }
 .rv-ancestry {
+  width: max(100%, calc(var(--gene-count, 45) * 16px + 100px));
   overflow: auto;
 }
 .rv-ancestry-row {
@@ -351,6 +352,7 @@
   border: 1px solid var(--muted, #798b7e);
 }
 .rv-frequencies {
+  width: max(100%, calc(var(--gene-count, 45) * 8px + 100px));
   min-width: 450px;
 }
 .rv-history {

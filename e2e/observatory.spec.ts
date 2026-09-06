@@ -86,7 +86,7 @@ test.beforeEach(async ({ page, context, request }) => {
   expect(await health.json()).toMatchObject({
     status: "ok",
     execution: "node:worker_threads",
-    modelVersion: "ca5-moore-research-v1",
+    modelVersion: "ca-moore-research-v2",
   });
   await open(page);
 });
@@ -362,7 +362,7 @@ test("downloaded checkpoints and UI forks retain exact population, RNG and deter
   expect(exported.checkpoint).toMatchObject({
     format: "polyp-research-checkpoint",
     version: 1,
-    modelVersion: "ca5-moore-research-v1",
+    modelVersion: "ca-moore-research-v2",
     sourceRunId: original.summary.id,
   });
   expect(exported.checkpoint.state?.population).toHaveLength(8);
@@ -484,7 +484,7 @@ test("finite run exposes real ancestry, retained generations, CA closeups and im
     .check();
   await expect(
     page.getByRole("img", {
-      name: "Allele frequencies for each of 45 loci and five output states",
+      name: "Allele frequencies for each of 45 loci and 5 output states",
     }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "History", exact: true }).click();
@@ -591,3 +591,90 @@ test("mobile controls create and inspect a real run without a clipped configurat
   await dialog.getByRole("button", { name: "Close run configuration" }).click();
   expect((await detail(request, run.summary.id)).summary.generation).toBe(0);
 });
+
+for (const stateCount of [2, 16]) {
+  test(`${stateCount}-state controls create a real run and expose all rule rows and alleles`, async ({
+    page,
+    request,
+  }, testInfo) => {
+    await page
+      .getByRole("button", { name: "New run", exact: true })
+      .first()
+      .click();
+    const dialog = page.getByRole("dialog", { name: "New run", exact: true });
+    await dialog
+      .getByRole("combobox", { name: "State count", exact: true })
+      .selectOption(String(stateCount));
+    await dialog
+      .getByRole("combobox", { name: "Simulation scale", exact: true })
+      .selectOption("quick");
+    if (stateCount === 2)
+      await dialog
+        .getByRole("combobox", { name: "Founder preset", exact: true })
+        .selectOption("life");
+    await dialog
+      .getByRole("spinbutton", { name: "Population", exact: true })
+      .fill("8");
+    await dialog
+      .getByRole("spinbutton", { name: "CPU workers", exact: true })
+      .fill("1");
+    await dialog
+      .getByRole("spinbutton", { name: "Generation limit", exact: true })
+      .fill("1");
+    await dialog
+      .getByRole("button", {
+        name: `Edit ${stateCount * 9} outputs`,
+        exact: true,
+      })
+      .click();
+    const editor = page.getByRole("dialog", { name: "Rule", exact: true });
+    await expect(
+      editor.getByRole("button", { name: /^State \d+, \d+ neighbors:/ }),
+    ).toHaveCount(stateCount * 9);
+    const last = editor.getByRole("button", {
+      name: new RegExp(`^State ${stateCount - 1}, 8 neighbors:`),
+    });
+    await last.click();
+    await expect(last).toBeVisible();
+    await screenArtifact(page, testInfo, `${stateCount}-state-rule-editor`);
+    await editor.getByRole("button", { name: "Apply", exact: true }).click();
+    const creating = page.waitForResponse(
+      (r) => r.url().endsWith("/api/runs") && r.request().method() === "POST",
+    );
+    await dialog
+      .getByRole("button", { name: "Create paused", exact: true })
+      .click();
+    const response = await creating;
+    expect(response.status()).toBe(201);
+    const run = (await response.json()) as RunDetail;
+    createdIds.add(run.summary.id);
+    expect(run.config.stateCount).toBe(stateCount);
+    expect(run.config.seedGenome).toHaveLength(stateCount * 9);
+    await waitForPaused(page, request, run.summary.id);
+    await step(page, request, run.summary.id);
+    await page.getByRole("tab", { name: "Population", exact: true }).click();
+    await expect(
+      page.getByLabel(`${stateCount * 9} rule outputs`, { exact: true }),
+    ).toHaveCount(8);
+    await page.getByRole("tab", { name: "Genetics", exact: true }).click();
+    const matrix = page.getByRole("table", {
+      name: "Selected rule: current state by active Moore neighbors",
+    });
+    await expect(matrix.getByRole("row")).toHaveCount(stateCount + 1);
+    await page
+      .getByRole("checkbox", {
+        name: "Population allele frequencies",
+        exact: true,
+      })
+      .check();
+    await expect(
+      page.getByRole("img", {
+        name: `Allele frequencies for each of ${stateCount * 9} loci and ${stateCount} output states`,
+      }),
+    ).toBeVisible();
+    await screenArtifact(page, testInfo, `${stateCount}-state-genetics`);
+    expect((await checkpoint(request, run.summary.id)).config.stateCount).toBe(
+      stateCount,
+    );
+  });
+}

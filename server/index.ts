@@ -450,7 +450,7 @@ export async function startResearchServer(options: ServerOptions = {}) {
       if (path === "preview" && req.method === "POST") {
         const input = await body(req);
         fields(input, ["genome", "seed"], ["genome", "seed"]);
-        genome(input.genome);
+        genome(input.genome, manager!.detail(id).config.stateCount);
         if (!Number.isSafeInteger(input.seed))
           throw new HttpError(400, "Preview seed must be a safe integer.");
         return json(

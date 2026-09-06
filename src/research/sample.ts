@@ -13,8 +13,8 @@ export function sampleTrajectory(
   input: RunConfig,
   seed: number,
 ) {
-  const genome = validateGenome(genomeInput),
-    config = validateRunConfig(input);
+  const config = validateRunConfig(input),
+    genome = validateGenome(genomeInput, config.stateCount);
   if (!Number.isSafeInteger(seed))
     throw new RangeError("Preview seed must be a safe integer.");
   const { size, steps } = config;

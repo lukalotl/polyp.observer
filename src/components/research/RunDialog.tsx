@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Code2, SlidersHorizontal, X } from "lucide-react";
-import { PRESETS, genomeId } from "../../simulation";
+import {
+  founderPresets,
+  genomeId,
+  resizeGenome,
+  MIN_STATE_COUNT,
+  MAX_STATE_COUNT,
+} from "../../research/genome";
 import { validateRunConfig } from "../../research/config";
 import {
   MAX_GRID_SIZE,
@@ -117,8 +123,9 @@ export default function RunDialog({
       );
     }
   }
+  const presets = founderPresets(draft.stateCount);
   const preset =
-    PRESETS.find((value) =>
+    presets.find((value) =>
       value.genome.every((gene, index) => gene === draft.seedGenome[index]),
     )?.id ?? "custom";
   const fixtureCount =
@@ -189,6 +196,41 @@ export default function RunDialog({
             <div className="config-grid">
               <fieldset>
                 <legend>Evaluation</legend>
+                <label className="config-field">
+                  <span>State count</span>
+                  <select
+                    aria-label="State count"
+                    value={draft.stateCount}
+                    onChange={(event) => {
+                      const stateCount = Number(event.target.value);
+                      setDraft((current) => ({
+                        ...current,
+                        stateCount,
+                        seedGenome: resizeGenome(
+                          current.seedGenome,
+                          stateCount,
+                        ),
+                      }));
+                    }}
+                  >
+                    {Array.from(
+                      { length: MAX_STATE_COUNT - MIN_STATE_COUNT + 1 },
+                      (_, i) => i + MIN_STATE_COUNT,
+                    ).map((count) => (
+                      <option key={count} value={count}>
+                        {count}
+                        {count === 2 ? " · binary" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="config-note">
+                  Includes empty state 0. Changing the count keeps existing rule
+                  rows, maps removed outputs to 1, and copies state 1's rule
+                  into new rows.
+                  {draft.stateCount === 2 &&
+                    " Life and HighLife are available under Founder preset."}
+                </p>
                 <label className="config-field">
                   <span>Simulation scale</span>
                   <select
@@ -348,6 +390,8 @@ export default function RunDialog({
                     ))}
                     <small>
                       Weights are normalized; persistence scales the result.
+                      {draft.stateCount === 2 &&
+                        " Binary rules have one occupied state, so state entropy is zero. Set its weight to 0 to use only the other components."}
                     </small>
                   </div>
                 )}
@@ -424,7 +468,7 @@ export default function RunDialog({
                     }
                   >
                     <option value="mutants">Founder + mutations</option>
-                    <option value="random">Founder + random rules</option>
+                    <option value="random">Random rules</option>
                   </select>
                 </label>
               </fieldset>
@@ -477,7 +521,7 @@ export default function RunDialog({
                     aria-label="Founder preset"
                     value={preset}
                     onChange={(event) => {
-                      const value = PRESETS.find(
+                      const value = presets.find(
                         (p) => p.id === event.target.value,
                       );
                       if (value)
@@ -491,7 +535,7 @@ export default function RunDialog({
                     <option value="custom" disabled>
                       Custom
                     </option>
-                    {PRESETS.map((p) => (
+                    {presets.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
                       </option>
@@ -510,12 +554,13 @@ export default function RunDialog({
                 <div className="founder-caption">
                   <code>{genomeId(draft.seedGenome)}</code>
                   <button onClick={() => setEditGenome(true)}>
-                    Edit 45 outputs
+                    Edit {draft.seedGenome.length} outputs
                   </button>
                 </div>
                 <p className="config-note">
-                  Five-state, outer-totalistic Moore CA. State 0 is empty; its
-                  empty-neighborhood rule is locked. Boundaries are fixed zero.
+                  {draft.stateCount}-state, outer-totalistic Moore CA. State 0
+                  is empty; its empty-neighborhood rule is locked. Boundaries
+                  are fixed zero.
                 </p>
                 <dl className="cost-estimate">
                   <div>

@@ -27,13 +27,20 @@ unchanged, small-volume golden reference. Training and preview share
 
 ## Pinned science and evaluation
 
-`MODEL_VERSION = ca5-moore-research-v1`: exactly five states and 45 integer genes,
+`MODEL_VERSION = ca-moore-research-v2`: `stateCount` is 2–16 (including empty
+state 0), with exactly `9 * stateCount` integer genes in `[0, stateCount - 1]`,
 indexed by `currentState * 9 + occupiedMooreNeighbors`. Neighbors are occupied
 counts, not sums of states. Gene 0 is always zero. Updates are synchronous, with a
 permanently zero boundary/halo, not wrapping. The seed is recorded at t=0; `steps`
 is the finite number of recorded time layers, not genetic generations.
 
-The evaluator reproduces legacy point/cross/islands placement and Mulberry32 RNG.
+Five-state evaluation reproduces legacy point/cross/islands placement and Mulberry32 RNG.
+Islands draw uniformly from occupied states 1 through `stateCount - 1`; their
+secondary neighbor uses state 2, or state 1 for binary rules. Point/cross use state 1.
+The explicit `ca5-moore-research-v1` checkpoint format migrates by adding
+`stateCount: 5` and upgrading the model tag. RNG, fitness, IDs, cache, ancestry,
+archives and five-state normalization are preserved exactly. New configurations
+must specify the count; missing fields and unknown model versions are rejected.
 It stores **two haloed lattice buffers** and one `Float64Array(steps)` population
 series, never a 3D history. It only steps the live bounding box expanded by one
 cell. Clearing the reused output prevents stale cells from reappearing after
@@ -54,6 +61,9 @@ fitness uses minimum. Fixtures count separately even if their trajectories match
   Distinct Islands seeds still can produce similar/equal placements; this is not
   a guarantee of independent biological evidence.
 - `complexity = persistence × weightedMean(diversity, motion, density, variation)`.
+  Occupied-state entropy is normalized by `log(stateCount - 1)`. Binary rules
+  have only one occupied state, so this component is defined as zero. Its weight
+  remains explicit; set it to zero to normalize over the other components.
   Weights are normalized by their positive sum, before multiplication to avoid
   subnormal underflow. Defaults 0.34/0.30/0.24/0.12 match legacy exactly.
 - `growth = clamp(.65 × gain + .25 × occupancy + .10 × persistence)`.
@@ -62,7 +72,7 @@ fitness uses minimum. Fixtures count separately even if their trajectories match
   not a claim that all survivors are immortal.
 - Changing complexity weights does not affect growth or longevity.
 
-Individual metrics: `diversity` is occupied-state Shannon entropy / log(4);
+Individual metrics: `diversity` is occupied-state Shannon entropy / log(stateCount − 1), or 0 for binary rules;
 `activity` is normalized **motion** (`clamp(changedFraction / max(occupancy,.01))`),
 not raw changed fraction; `density` is the legacy sparse/mid-density reward;
 `variation` is clamped population coefficient of variation; `persistence` is
@@ -87,12 +97,12 @@ fitness ties; tournament size controls pressure. Rank selection has linear rank
 weights 1..N, averaging equal-fitness ranks so neutral genotypes are not biased by
 stable ID/order. Uniform crossover chooses each unlocked locus independently.
 One-point crossover cuts between unlocked genes, using loci 1..cut from parent 0
-and cut+1..44 from parent 1 (cut is 1..43). `none` or a failed crossover probability
+and cut+1..last from parent 1 (cut is 1..geneCount−2). `none` or a failed crossover probability
 keeps one parent. Crossover may select the same parent twice; its recorded mask
 still truthfully records the operation, not invented genetic novelty.
 
 Each unlocked locus mutates independently, always to a _different_ output among
-the other four states. `crossoverMask[45]` records pre-mutation source parent;
+the other `stateCount - 1` states. `crossoverMask[9 * stateCount]` records pre-mutation source parent;
 `mutatedLoci` is sorted, unique, excludes 0 and lists actual changes. Two-parent
 children have origin `crossover` even if also mutated; one-parent children are
 `mutant` or `clone`; founders/random/immigrants are unparented except that initial
@@ -103,7 +113,7 @@ The all-time strict-best champion is independent of the current population. Exac
 fitness ties preserve its identity; **zero elites may let generation best regress**.
 Generation snapshots report best/mean/worst/median, bestEver, maximum held-out
 fitness among the current population, distinct full genotypes, and mean per-locus
-Shannon allele entropy / log(5) across the **44 unlocked genes**. This allelic
+Shannon allele entropy / log(stateCount) across the **9 \* stateCount − 1 unlocked genes**. This allelic
 entropy differs from the individual's occupied-state entropy.
 
 State includes every individual, champion, uint32 Mulberry32 state, next ID,
@@ -117,9 +127,9 @@ CA horizons remain finite. Explicit positive limits stop further advances.
 
 ## Cache and accounting
 
-Keys are complete 45-digit genomes, **never short display hashes** (tests include
+Keys are complete genomes encoded as one hexadecimal digit per locus, **never short display hashes** (tests include
 two different genomes that collide at the legacy display fingerprint). A state's
-scientific config is pinned: changing the objective/fixtures/horizon/model requires
+scientific config, including state count, is pinned: changing the objective/fixtures/horizon/model requires
 a **new initialized run**, not transplanting its population/cache.
 
 The checkpoint stores LRU entries least-to-most recently touched. A batch first
@@ -204,7 +214,6 @@ maximum smaller). Preview additionally retains at most 8 MiB of full spatial
 planes and a full-horizon population series. These
 bounds exclude JS metadata, state/population/cache, worker heaps and garbage
 awaiting collection. There is no claim that process RSS equals lattice payload.
-
 
 ## Deep preview sampling
 

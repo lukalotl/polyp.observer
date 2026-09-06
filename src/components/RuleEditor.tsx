@@ -16,6 +16,7 @@ export default function RuleEditor({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState(genome);
+  const stateCount = draft.length / 9;
   useEffect(() => {
     if (open) {
       setDraft([...genome]);
@@ -48,7 +49,7 @@ export default function RuleEditor({
               {n}
             </span>
           ))}
-          {Array.from({ length: 5 }, (_, state) => (
+          {Array.from({ length: stateCount }, (_, state) => (
             <div key={state} className="rule-table-row">
               <span className="rule-table-heading">{state}</span>
               {Array.from({ length: 9 }, (_, neighbors) => {
@@ -63,7 +64,7 @@ export default function RuleEditor({
                     onClick={() =>
                       setDraft((values) =>
                         values.map((value, i) =>
-                          i === index ? (value + 1) % 5 : value,
+                          i === index ? (value + 1) % stateCount : value,
                         ),
                       )
                     }
