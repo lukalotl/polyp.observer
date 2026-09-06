@@ -9,6 +9,8 @@ interface with a dark scientific stage, faceted voxels, ordered dithering and
 film grain. All computation and storage stay in the browser; no account, API key,
 analytics service, backend, or runtime asset CDN is required.
 
+![Polyp Observer: a five-state spacetime specimen in the rebuilt observatory](docs/preview.png)
+
 ## Run
 
 Requires Node.js 22+ and npm.

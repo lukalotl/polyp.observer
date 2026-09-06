@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import Volume from "./components/Volume";
 import RuleEditor from "./components/RuleEditor";
+import { trapDialogTab } from "./dialogFocus";
 import { PALETTES } from "./rendering/materials";
 import { SpecimenPreview } from "./components/SpecimenPreview";
 import { PopulationChart } from "./components/PopulationChart";
@@ -90,6 +91,7 @@ export default function App() {
   const runSeed = useRef(1729);
   const fileInput = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const observatoryRef = useRef<HTMLDivElement>(null);
   const simulation = useMemo(() => simulate(genome, config), [genome, config]);
   const score = fitness(simulation, objective);
   const id = genomeId(genome);
@@ -137,6 +139,43 @@ export default function App() {
     const timer = setTimeout(() => setNotice(""), 4200);
     return () => clearTimeout(timer);
   }, [notice]);
+  useEffect(() => {
+    if (!expanded) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const container = observatoryRef.current;
+    container
+      ?.querySelector<HTMLElement>('[aria-label="Exit expanded view"]')
+      ?.focus();
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !container) return;
+      const controls = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href]",
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (!first || !last) return;
+      if (
+        !container.contains(document.activeElement) ||
+        (!event.shiftKey && document.activeElement === last)
+      ) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", trapFocus);
+      previousFocus?.focus();
+    };
+  }, [expanded]);
   useEffect(() => {
     if (aboutOpen) dialogRef.current?.showModal();
     else dialogRef.current?.close();
@@ -618,7 +657,13 @@ export default function App() {
           </div>
         </aside>
 
-        <div className={`observatory ${expanded ? "expanded" : ""}`}>
+        <div
+          ref={observatoryRef}
+          role={expanded ? "dialog" : undefined}
+          aria-modal={expanded || undefined}
+          aria-label={expanded ? "Expanded observatory" : undefined}
+          className={`observatory ${expanded ? "expanded" : ""}`}
+        >
           <section
             className={`stage palette-${palette} ${grain ? "with-grain" : ""}`}
             aria-label="Interactive 3D spacetime volume"
@@ -998,6 +1043,7 @@ export default function App() {
       />
       <dialog
         ref={dialogRef}
+        onKeyDown={trapDialogTab}
         aria-labelledby="model-title"
         onCancel={() => setAboutOpen(false)}
         onClick={(event) => {

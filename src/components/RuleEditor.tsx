@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, LockKeyhole, X } from "lucide-react";
 import type { Genome } from "../simulation";
+import { trapDialogTab } from "../dialogFocus";
 
 export default function RuleEditor({
   open,
@@ -24,6 +25,7 @@ export default function RuleEditor({
   return (
     <dialog
       ref={ref}
+      onKeyDown={trapDialogTab}
       aria-labelledby="rule-title"
       className="about-dialog rule-dialog"
       onCancel={onClose}
