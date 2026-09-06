@@ -219,6 +219,36 @@ async function socket(
   };
 }
 
+test("production and preview frontend origins can control and observe the VM without allowing lookalike sites", async (t) => {
+  const origins = ["https://polyp.observer", "https://polyp-preview.vercel.app"];
+  const f = await fixture(t, { publicOrigins: origins });
+  for (const origin of origins) {
+    const result = await response(f.server, "runs", { config: tiny() }, { Origin: origin });
+    assert.equal(result.status, 201);
+    const observer = await socket(t, f.server, origin);
+    await observer.wait((event) => event.type === "hello");
+    observer.peer.close();
+  }
+  for (const origin of ["https://polyp.observer.attacker.invalid", "http://polyp.observer", "https://other-preview.vercel.app"]) {
+    assert.equal((await response(f.server, "runs", { config: tiny() }, { Origin: origin })).status, 403);
+    const status = await new Promise<number>((resolve, reject) => {
+      const peer = new WebSocket(`ws://127.0.0.1:${f.server.port}/api/research/ws`, { origin });
+      peer.once("unexpected-response", (_request, result) => {
+        result.resume();
+        resolve(result.statusCode!);
+        peer.terminate();
+      });
+      peer.once("open", () => {
+        peer.terminate();
+        reject(new Error("Untrusted frontend opened a subscription"));
+      });
+      peer.on("error", () => {});
+    });
+    assert.equal(status, 403);
+  }
+  assert.equal((await api<RunList>(f.server, "runs")).runs.length, 2);
+});
+
 // This oracle retains the complete CA space-time volume, unlike worker evaluation.
 function oracleMetrics(genome: Genome, config: RunConfig, seed: number) {
   const result = simulate(genome, {

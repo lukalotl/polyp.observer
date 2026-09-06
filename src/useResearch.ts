@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { post, request } from "./research/api";
+import { post, request, researchSocketUrl } from "./research/api";
 import type {
   Capacity,
   ResearchEvent,
@@ -186,9 +186,7 @@ export function useResearch() {
         );
       };
       try {
-        const url = new URL("/api/research/ws", location.href);
-        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-        transport = new WebSocket(url);
+        transport = new WebSocket(researchSocketUrl());
         socket.current = transport;
       } catch {
         if (!disposed) {

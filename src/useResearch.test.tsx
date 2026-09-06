@@ -42,6 +42,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 async function mount(details: RunDetail[] = [first.detail, second.detail]) {
   const hook = renderHook(() => useResearch());
@@ -59,6 +60,14 @@ async function mount(details: RunDetail[] = [first.detail, second.detail]) {
 }
 
 describe("persistent VM run discovery and selection", () => {
+  it("uses the configured VM for subscriptions while HTTP uses the site's rewrite", async () => {
+    vi.stubEnv("VITE_RESEARCH_WS_ORIGIN", "https://research.example.com");
+    const { socket, result } = await mount();
+    expect(String(socket.url)).toBe("wss://research.example.com/api/research/ws");
+    expect(http.requests[0].path).toBe("/api/runs");
+    expect(result.current.connection).toBe("connected");
+    expect(result.current.detail).toEqual(first.detail);
+  });
   it("loads the registry, subscribes to one run, and remembers only its identity", async () => {
     const hook = renderHook(() => useResearch());
     const socket = ResearchSocket.instances[0];

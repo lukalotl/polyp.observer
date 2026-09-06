@@ -8,6 +8,23 @@ export class ApiError extends Error {
   }
 }
 
+/** HTTP stays on the site's /api rewrite; live subscriptions go directly to the VM. */
+export function researchSocketUrl(
+  pageUrl = location.href,
+  backendOrigin = import.meta.env.VITE_RESEARCH_WS_ORIGIN,
+): URL {
+  const base = new URL(backendOrigin || pageUrl);
+  if (
+    !["http:", "https:"].includes(base.protocol) ||
+    (backendOrigin &&
+      (base.username || base.password || base.pathname !== "/" || base.search || base.hash))
+  )
+    throw new Error("VITE_RESEARCH_WS_ORIGIN must be an HTTP(S) origin.");
+  const url = new URL("/api/research/ws", base);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url;
+}
+
 export async function request<T>(
   path: string,
   options: RequestInit = {},
