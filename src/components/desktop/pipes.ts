@@ -62,6 +62,8 @@ export class PipeField {
       if (++this.age > Math.max(80, (this.width * this.height) / 3)) {
         this.cells.fill(0);
         this.age = 0;
+        // Fill the start of the next pattern in this frame, avoiding an empty flash.
+        steps += Math.floor((this.width * this.height) / 10);
       }
       for (const walker of this.walkers) {
         if (--walker.remaining <= 0) {

@@ -40,3 +40,11 @@ it("keeps drawing fresh patterns after a full cycle", () => {
   expect(field.cells).not.toEqual(previous);
   expect(field.cells.some((value) => value === 0)).toBe(true);
 });
+
+it("retains a dense visible pattern at every cycle boundary", () => {
+  const field = new PipeField(35, 22, 1729);
+  for (let frame = 0; frame < 600; frame++) {
+    field.advance(2);
+    expect(field.cells.filter((cell) => cell !== 0).length).toBeGreaterThan(77);
+  }
+});
