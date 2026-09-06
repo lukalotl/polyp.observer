@@ -1,0 +1,384 @@
+/* The reference supplies the accents, while the original workbench owns layout. */
+:root {
+  --surface: #0e1823;
+  --field: #090f16;
+  --line: #29394a;
+  --muted: #8da5a1;
+  --text: #c8d1dc;
+  --accent: #df6c7c;
+  --coral: #df6c7c;
+  --gold: #e5c995;
+  --sage: #90a98e;
+  --blue: #82a9da;
+  --lilac: #baa2cf;
+  color: var(--text);
+}
+.research-toolbar {
+  background: #101a27;
+  border-bottom-color: var(--line);
+  background-image: linear-gradient(
+    90deg,
+    var(--coral),
+    var(--gold) 30%,
+    var(--sage) 55%,
+    var(--blue) 80%,
+    var(--lilac)
+  );
+  background-size: 100% 2px;
+  background-repeat: no-repeat;
+}
+.primary-action {
+  background: #df6c7c1a !important;
+  border-color: #df6c7c70 !important;
+  color: #f0a2ac !important;
+}
+.primary-action:hover:not(:disabled) {
+  background: #df6c7c30 !important;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline-color: var(--gold);
+}
+input[type="checkbox"] {
+  accent-color: var(--coral);
+}
+input[type="range"]::-webkit-slider-thumb {
+  background: var(--coral);
+}
+input[type="range"]::-moz-range-thumb {
+  background: var(--coral);
+}
+.run-registry {
+  background: #0c1520;
+}
+.registry-heading {
+  color: var(--gold);
+  font-family: var(--mono);
+}
+.registry-heading > span::before {
+  content: "~/ ";
+  color: var(--coral);
+}
+.registry-heading button,
+.registry-footer {
+  color: var(--muted);
+}
+.run-row.selected {
+  background: #df6c7c0e;
+  border-color: #df6c7c45;
+  box-shadow: inset 2px 0 var(--coral);
+}
+.run-row-title strong {
+  color: var(--text);
+}
+.run-row-meta {
+  color: var(--gold);
+}
+.run-row-sub,
+.capacity-line {
+  color: var(--muted);
+}
+.running-action,
+.run-status.running,
+.connection-badge.connected {
+  color: var(--sage);
+}
+.run-status.running {
+  border-color: #90a98e65;
+  background: #90a98e0e;
+}
+.run-status.completed {
+  color: var(--blue);
+  border-color: #82a9da55;
+}
+.run-status.queued,
+.run-status.starting,
+.run-status.pausing {
+  color: var(--gold);
+  border-color: #e5c99555;
+}
+.run-status.failed {
+  color: var(--coral);
+  border-color: #df6c7c70;
+}
+.status-dot.running,
+.connection-badge.connected i {
+  background: var(--sage);
+}
+.status-dot.completed {
+  background: var(--blue);
+}
+.status-dot.failed {
+  background: var(--coral);
+}
+.status-dot.queued,
+.status-dot.starting,
+.status-dot.pausing {
+  background: var(--gold);
+}
+.run-metrics {
+  background: #101a27;
+}
+.run-metrics strong {
+  color: var(--gold);
+}
+.run-metrics > div:nth-of-type(1) strong {
+  color: var(--coral);
+}
+.run-metrics > div:nth-of-type(3) strong {
+  color: var(--blue);
+}
+.run-metrics > div:nth-of-type(4) strong {
+  color: var(--sage);
+}
+.run-metrics > div:nth-of-type(5) strong {
+  color: var(--lilac);
+}
+.run-metrics > div > span,
+.run-metrics small {
+  color: var(--muted);
+}
+.run-metrics .metric-time {
+  color: var(--muted);
+}
+.inspector-toolbar,
+.ca-timeline {
+  background: #0c1520;
+  border-color: var(--line);
+}
+.inspector-toolbar select {
+  color: var(--sage);
+}
+.inspector-toolbar button {
+  color: var(--blue);
+}
+.candidate-identity,
+.ca-timeline output {
+  color: var(--gold);
+}
+.analysis-pane,
+.analysis-tabs {
+  background: var(--surface);
+  border-color: var(--line);
+}
+.analysis-tabs button[role="tab"] {
+  --tab-color: var(--coral);
+  color: var(--muted);
+}
+.analysis-tabs button[role="tab"]:nth-child(2) {
+  --tab-color: var(--gold);
+}
+.analysis-tabs button[role="tab"]:nth-child(3) {
+  --tab-color: var(--sage);
+}
+.analysis-tabs button[role="tab"]:nth-child(4) {
+  --tab-color: var(--blue);
+}
+.analysis-tabs button[role="tab"]:nth-child(5) {
+  --tab-color: var(--lilac);
+}
+.analysis-tabs button[aria-selected="true"] {
+  color: var(--tab-color);
+}
+.analysis-tabs button[aria-selected="true"]::after {
+  background: var(--tab-color);
+}
+.parameters-columns dt,
+.config-field > span,
+.config-name > span {
+  color: var(--muted);
+}
+.parameters-columns dd,
+.config-grid legend {
+  color: var(--gold);
+}
+.parameters-columns pre {
+  color: var(--sage);
+  background: var(--field);
+}
+.parameter-actions button {
+  color: var(--coral);
+  border-color: #df6c7c55;
+}
+.run-dialog,
+.view-options {
+  background: #101a27f7;
+  border-color: #526571;
+  color: var(--text);
+}
+.dialog-header h2 {
+  color: var(--gold);
+}
+.dialog-header button {
+  color: var(--blue);
+}
+.dialog-footer {
+  background: #0c1520;
+}
+.rule-cell.state-1 {
+  background: var(--coral);
+}
+.rule-cell.state-2 {
+  background: var(--gold);
+}
+.rule-cell.state-3 {
+  background: var(--sage);
+}
+.rule-cell.state-4 {
+  background: var(--blue);
+}
+.rv-population-table th {
+  color: var(--muted);
+}
+.rv-population-table td:nth-child(3) {
+  color: var(--gold);
+}
+.rv-population-table td:nth-child(4) {
+  color: var(--coral);
+}
+.rv-section-label {
+  color: var(--gold);
+}
+.rv-source-0 {
+  color: var(--blue);
+}
+.rv-source-1 {
+  color: var(--gold);
+}
+.no-run-view {
+  position: relative;
+  isolation: isolate;
+  color: var(--muted);
+}
+.no-run-view::before {
+  content: "╭──╴ + · ─╮     ╭───╴\A│  ╭──────╯  ·  │\A╰──┤  p o l y p ├──╮\A   ╰──╴ · + ───╯  │\A      ╰───────────╯";
+  white-space: pre;
+  font: 13px/1.6 var(--mono);
+  letter-spacing: 1px;
+  color: var(--coral);
+  background: linear-gradient(
+    115deg,
+    var(--coral),
+    var(--gold),
+    var(--sage),
+    var(--blue)
+  );
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  pointer-events: none;
+}
+::selection {
+  color: #eff3f7;
+  background: #df6c7c50;
+}
+
+/* Each handle sits on an existing shared border; panels remain docked. */
+.run-registry {
+  position: relative;
+  width: var(--registry-width);
+  min-width: var(--registry-width);
+}
+.run-metrics {
+  position: relative;
+  height: var(--metrics-height);
+}
+.analysis-pane:not(.collapsed) {
+  height: var(--analysis-height);
+  min-height: 144px;
+  max-height: none;
+}
+.champion-pane {
+  min-height: var(--inspector-min);
+}
+.focus-mode .champion-pane {
+  min-height: 0;
+}
+.pane-divider {
+  position: absolute;
+  display: block;
+  z-index: 7;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.pane-divider-registry {
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 8px;
+  cursor: col-resize;
+}
+.pane-divider-metrics,
+.pane-divider-analysis {
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: row-resize;
+}
+.pane-divider-metrics {
+  bottom: -4px;
+}
+.pane-divider-analysis {
+  top: -4px;
+}
+.pane-divider::after {
+  content: "";
+  position: absolute;
+  background: var(--coral);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.pane-divider-registry::after {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  left: 3px;
+}
+.pane-divider-metrics::after,
+.pane-divider-analysis::after {
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+.pane-divider:hover::after,
+.pane-divider:focus-visible::after,
+.pane-divider[data-resizing]::after {
+  opacity: 0.85;
+}
+@media (max-width: 800px) {
+  .run-registry {
+    position: absolute;
+  }
+}
+@media (pointer: coarse) {
+  .pane-divider-registry {
+    width: 16px;
+    right: -8px;
+  }
+  .pane-divider-registry::after {
+    left: 7px;
+  }
+  .pane-divider-metrics,
+  .pane-divider-analysis {
+    height: 16px;
+  }
+  .pane-divider-metrics {
+    bottom: -8px;
+  }
+  .pane-divider-analysis {
+    top: -8px;
+  }
+  .pane-divider-metrics::after,
+  .pane-divider-analysis::after {
+    top: 7px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pane-divider::after {
+    transition: none;
+  }
+}

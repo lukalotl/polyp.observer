@@ -4,7 +4,7 @@ import { request } from "../../research/api";
 import { fitnessNumber, number } from "../../research/format";
 import type { RunConfig, RunDetail, RunSummary } from "../../research/types";
 
-const colors = ["#b1cc9a", "#dca777", "#91bac8", "#bf9ec9"];
+const colors = ["#90a98e", "#e5c995", "#82a9da", "#df6c7c"];
 function evaluationKey(config: RunConfig) {
   return JSON.stringify([
     config.stateCount,

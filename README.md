@@ -32,17 +32,12 @@ The public website uses Vercel plus a persistent VM backend. See
 
 ## Workbench
 
-- **Floating desktop**: drag any panel by its title, resize from its bottom-right
-  corner, or double-click the title to maximize/restore. Focus a title or resize
-  handle and use arrow keys (Shift for one-pixel adjustments). Positions and sizes
-  survive reloads; **reset layout** restores every panel. Phones start with a
-  scrollable stack. The run configuration dialog also has a draggable title grip.
-  The clock shows local time; the animated ASCII pipes are decorative, can be
-  paused/reseeded, and respect reduced motion. Research continues independently.
-  The navy/coral/gold/sage palette was sampled from the supplied desktop reference;
-  [sample coordinates](public/desktop/palette.json) and the wallpaper derived from
-  its unobstructed artwork live in `public/desktop`. JetBrains Mono is bundled
-  under its [SIL Open Font License](public/fonts/OFL.txt).
+- **Pane edges**: drag the registry's right border, the metrics' bottom border,
+  or the divider between the inspector and analysis. Panels stay docked. Sizes
+  survive reloads and fit the current viewport. Focus a divider and use arrow
+  keys (Shift for fine adjustment); Enter or double-click restores its default.
+  Coral, gold, sage and blue accents and a small ASCII empty-state mark borrow
+  from the reference while preserving the original controls and page structure.
 - **State count**: choose 2–16 in New run or New variant; 0 is empty. Binary
   runs offer Life and HighLife founders. Each state has nine rule entries, one
   per occupied-neighbor count. Five states remain the default. Changing the

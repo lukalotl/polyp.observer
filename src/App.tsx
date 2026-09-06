@@ -21,10 +21,9 @@ import {
   X,
 } from "lucide-react";
 import Volume from "./components/Volume";
-import { Desktop, FloatingWindow } from "./components/desktop/Desktop";
-import { AsciiArt, DesktopBar, TerminalClock, TerminalIdentity } from "./components/desktop/Terminal";
 import { layoutTimeLayers } from "./rendering/volumeData";
 import RunDialog from "./components/research/RunDialog";
+import { PaneDivider, usePaneSizes } from "./components/research/PaneDivider";
 import PopulationView from "./components/research/PopulationView";
 import GeneticsView from "./components/research/GeneticsView";
 import HistoryView from "./components/research/HistoryView";
@@ -57,7 +56,7 @@ const panelNames: Record<Panel, string> = {
 
 export default function App() {
   const lab = useResearch();
-  const [showRuns, setShowRuns] = useState(true);
+  const [showRuns, setShowRuns] = useState(() => window.innerWidth > 800);
   const [showAnalysis, setShowAnalysis] = useState(true);
   const [showMetrics, setShowMetrics] = useState(true);
   const [focus, setFocus] = useState(false);
@@ -103,6 +102,11 @@ export default function App() {
   const root = useRef<HTMLDivElement>(null);
   const detail = lab.detail;
   const run = detail?.summary;
+  const panes = usePaneSizes({
+    metrics: Boolean(detail) && showMetrics && !focus,
+    analysis:
+      !detail || focus ? "hidden" : showAnalysis ? "expanded" : "collapsed",
+  });
   const workingSnapshot = historical ?? detail?.snapshot ?? null;
   const generationBest = useMemo(
     () =>
@@ -384,9 +388,11 @@ export default function App() {
   }
 
   return (
-    <Desktop>
-    <div ref={root} className={`research-app ${focus ? "focus-mode" : ""}`}>
-      <DesktopBar connected={lab.connection === "connected"} workers={lab.capacity.allocatedWorkers} limit={lab.capacity.maxEvaluationWorkers} onReset={() => { setFocus(false); setShowRuns(true); setShowAnalysis(true); setShowMetrics(true); }} />
+    <div
+      ref={root}
+      style={panes.style}
+      className={`research-app ${focus ? "focus-mode" : ""}`}
+    >
       <header className="research-toolbar" aria-label="Research controls">
         <button
           aria-label="Toggle run registry"
@@ -477,14 +483,13 @@ export default function App() {
       </header>
 
       <div className="research-body">
-        {!focus && <>
-          <FloatingWindow id="clock" title="clock"><TerminalClock /></FloatingWindow>
-          <FloatingWindow id="ascii" title="ascii"><AsciiArt /></FloatingWindow>
-        </>}
         {showRuns && !focus && (
-          <FloatingWindow id="registry" title="registry">
-          <aside className="run-registry" aria-label="Run registry">
-            <TerminalIdentity model={lab.modelVersion} connected={lab.connection === "connected"} runs={lab.runs.length} workers={lab.capacity.allocatedWorkers} limit={lab.capacity.maxEvaluationWorkers} />
+          <aside
+            id="pane-registry"
+            className="run-registry"
+            aria-label="Run registry"
+          >
+            <PaneDivider {...panes.divider("registry")} />
             <div className="registry-heading">
               <span>Runs</span>
               <div className="button-row">
@@ -586,7 +591,6 @@ export default function App() {
               </button>
             </div>
           </aside>
-          </FloatingWindow>
         )}
 
         <main className="research-workspace">
@@ -610,18 +614,7 @@ export default function App() {
             </div>
           )}
           {!detail ? (
-            <>
-            {!focus && showMetrics && <FloatingWindow id="metrics" title="metrics"><div className="idle-monitor">
-              <div className="monitor-heading"><span>research / resources</span><span className="text-sage">{lab.connection === "connected" ? "ONLINE" : "CONNECTING"}</span></div>
-              <div className="terminal-meter"><span>CPU pool</span><i><b style={{width: (lab.capacity.allocatedWorkers / Math.max(1, lab.capacity.maxEvaluationWorkers) * 100) + "%"}} /></i><strong>{lab.capacity.allocatedWorkers} / {lab.capacity.maxEvaluationWorkers || "—"}</strong></div>
-              <div className="monitor-idle-line">{"·".repeat(90)}</div>
-              <span className="monitor-footnote">{lab.runs.filter((value) => ACTIVE.includes(value.status)).length} active · waiting for a selected experiment</span>
-            </div></FloatingWindow>}
-            {!focus && showAnalysis && <FloatingWindow id="analysis" title="population"><div className="empty-population"><div className="terminal-table-heading">ID <span>GEN</span><span>FITNESS</span></div><p>No population loaded.</p><span className="text-sage">❯</span> <button onClick={() => openNew()}>create experiment</button><p className="terminal-help">Select a run to inspect its rules,<br />ancestry, and retained generations.</p></div></FloatingWindow>}
-            <FloatingWindow id="inspector" title="spacetime" full={focus}>
             <div className="no-run-view">
-              <AsciiArt mode="contours" controls={false} />
-              <div className="idle-observer-label"><span>POLYP / OBSERVER</span><small>cellular automata research</small></div>
               <span>
                 {lab.loading
                   ? "Loading runs…"
@@ -640,8 +633,6 @@ export default function App() {
                 </button>
               )}
             </div>
-            </FloatingWindow>
-            </>
           ) : (
             <>
               {run?.status === "queued" && (
@@ -655,8 +646,12 @@ export default function App() {
                 </div>
               )}
               {!focus && showMetrics && (
-                <FloatingWindow id="metrics" title="metrics">
-                <section className="run-metrics" aria-label="Run metrics">
+                <section
+                  id="pane-metrics"
+                  className="run-metrics"
+                  aria-label="Run metrics"
+                >
+                  <PaneDivider {...panes.divider("metrics")} />
                   <div>
                     <span>Generation</span>
                     <strong>
@@ -710,9 +705,7 @@ export default function App() {
                     <X size={13} />
                   </button>
                 </section>
-                </FloatingWindow>
               )}
-              <FloatingWindow id="inspector" title="spacetime" full={focus}>
               <section
                 className="champion-pane"
                 aria-label="Champion inspector"
@@ -1066,14 +1059,16 @@ export default function App() {
                   </select>
                 </div>
               </section>
-              </FloatingWindow>
 
               {!focus && (
-                <FloatingWindow id="analysis" title="population">
                 <section
+                  id="pane-analysis"
                   className={`analysis-pane ${showAnalysis ? "" : "collapsed"}`}
                   aria-label="Genetic analysis"
                 >
+                  {showAnalysis && (
+                    <PaneDivider {...panes.divider("analysis")} />
+                  )}
                   <header className="analysis-tabs">
                     <div role="tablist" aria-label="Analysis views">
                       {(Object.keys(panelNames) as Panel[]).map((key) => (
@@ -1287,7 +1282,6 @@ export default function App() {
                     </div>
                   )}
                 </section>
-                </FloatingWindow>
               )}
             </>
           )}
@@ -1312,6 +1306,5 @@ export default function App() {
         />
       )}
     </div>
-    </Desktop>
   );
 }

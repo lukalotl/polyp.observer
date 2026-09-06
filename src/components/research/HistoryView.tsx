@@ -20,17 +20,17 @@ const SERIES: {
   color: string;
   dash?: string;
 }[] = [
-  { key: "bestEver", label: "Best ever", color: "#c9d5a6" },
-  { key: "best", label: "Generation best", color: "#82b598" },
-  { key: "mean", label: "Mean", color: "#75a9ba" },
-  { key: "worst", label: "Worst", color: "#6c7d8b" },
+  { key: "bestEver", label: "Best ever", color: "#e5c995" },
+  { key: "best", label: "Generation best", color: "#90a98e" },
+  { key: "mean", label: "Mean", color: "#82a9da" },
+  { key: "worst", label: "Worst", color: "#757f83" },
   {
     key: "validationBest",
     label: "Held-out best",
-    color: "#c39d7d",
+    color: "#df6c7c",
     dash: "5 3",
   },
-  { key: "diversity", label: "Allele entropy", color: "#b2a1c2", dash: "2 4" },
+  { key: "diversity", label: "Allele entropy", color: "#baa2cf", dash: "2 4" },
 ];
 function useChartSize() {
   const ref = useRef<HTMLDivElement>(null);
