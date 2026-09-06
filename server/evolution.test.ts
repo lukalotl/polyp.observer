@@ -1,5 +1,8 @@
 /** Native Node integration tests: real TCP WebSockets, real threads, real engine. */
 import { after, afterEach, before, test } from "node:test";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { parseListenOptions } from "../scripts/listen-options.mjs";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -650,5 +653,102 @@ test("production serves static dist safely and shutdown closes live workers and 
   } finally {
     await isolated.close();
     await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("preview and dev launchers honor explicit listening flags instead of silently using a different port", () => {
+  assert.deepEqual(
+    parseListenOptions(["--port", "3000", "--strictPort"], { port: "4173" }),
+    { port: 3000, host: "0.0.0.0" },
+  );
+  assert.deepEqual(
+    parseListenOptions(["--port=3001", "--host=127.0.0.1"], { port: "5173" }),
+    { port: 3001, host: "127.0.0.1" },
+  );
+  assert.deepEqual(
+    parseListenOptions(["-p", "3002", "--host"], {
+      port: 4173,
+      host: "localhost",
+    }),
+    { port: 3002, host: "0.0.0.0" },
+  );
+  assert.deepEqual(parseListenOptions([], { port: "8787", host: "::1" }), {
+    port: 8787,
+    host: "::1",
+  });
+  for (const args of [
+    ["--port"],
+    ["--port=0"],
+    ["--port=65536"],
+    ["--port=3.5"],
+    ["--port=oops"],
+    ["--host="],
+    ["--typo"],
+  ]) {
+    assert.throws(
+      () => parseListenOptions(args, { port: 4173 }),
+      args.join(" "),
+    );
+  }
+});
+
+test("the actual preview CLI serves the VM health and evolutionary WebSocket on its requested port", async () => {
+  const reservation = await startEvolutionServer({
+    port: 0,
+    host: "127.0.0.1",
+  });
+  const port = reservation.port;
+  await reservation.close();
+  const entry = fileURLToPath(new URL("./index.js", import.meta.url));
+  const child = spawn(
+    process.execPath,
+    [entry, "--port", String(port), "--host", "127.0.0.1", "--strictPort"],
+    {
+      env: { ...process.env, PORT: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  const ended = new Promise<number | null>((resolveExit, reject) => {
+    child.once("exit", resolveExit);
+    child.once("error", reject);
+  });
+  let client: Client | undefined;
+  try {
+    await until(() => {
+      assert.equal(child.exitCode, null, output);
+      return output.includes(`on port ${port};`);
+    });
+    const status = await health(port);
+    assert.equal(status.execution, "node:worker_threads");
+    ({ client } = await connect(port));
+    const command = { ...base(), type: "step" as const };
+    client.send(command);
+    const { message } = await client.take("snapshot", command.id);
+    const expected = evolve(
+      command.genome,
+      command.config,
+      command.objective,
+      command.mutationRate,
+      command.randomSeed,
+    );
+    assert.equal(message.epoch, 1);
+    assert.ok(message.execution.threadId > 0);
+    assert.equal(message.fitness, expected.fitness);
+    assert.deepEqual(message.genome, expected.genome);
+    assert.deepEqual(message.simulation, wire(expected.simulation));
+  } finally {
+    await client?.close();
+    child.kill("SIGTERM");
+    const force = setTimeout(() => child.kill("SIGKILL"), 3000);
+    const code = await ended;
+    clearTimeout(force);
+    assert.equal(code, 0, output);
   }
 });

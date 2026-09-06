@@ -3,6 +3,14 @@ import { context } from "esbuild";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { root, serverBuildOptions } from "./build-server.mjs";
+import { parseListenOptions } from "./listen-options.mjs";
+
+const listen = parseListenOptions(process.argv.slice(2), {
+  port: process.env.CLIENT_PORT ?? process.env.PORT ?? "5173",
+  host: process.env.HOST ?? "0.0.0.0",
+});
+// The VM's same-origin aliases must use the actual selected client port.
+process.env.CLIENT_PORT = String(listen.port);
 
 let backend;
 let frontend;
@@ -82,9 +90,9 @@ try {
   frontend = launch([
     "node_modules/vite/bin/vite.js",
     "--host",
-    "0.0.0.0",
+    listen.host,
     "--port",
-    process.env.CLIENT_PORT ?? "5173",
+    String(listen.port),
     "--strictPort",
   ]);
   frontend.on("exit", (code) => {

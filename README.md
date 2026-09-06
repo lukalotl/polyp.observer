@@ -14,9 +14,19 @@ npm run build        # client + Node server/worker bundles
 npm start            # production HTTP/WebSocket server :4173
 ```
 
-`npm run preview` also starts the full Node server. Static-only hosting is not
+`npm run preview` also starts the full Node server. Both launchers accept explicit
+ports, including existing workspace preview commands:
+
+```sh
+npm run preview -- --port 3000 --strictPort
+npm run dev -- --port 3000
+```
+
+Use these project scripts, not a bare `vite preview`: a static preview can show the
+UI while having no VM WebSocket endpoint. `/api/health` must return JSON identifying
+`node:worker_threads`, not the HTML application shell. Static-only hosting is not
 sufficient. `PORT` overrides the production port; `API_PORT` and `CLIENT_PORT`
-override development ports.
+override development ports; explicit `--port` takes precedence.
 
 ## Execution
 

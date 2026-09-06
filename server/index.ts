@@ -9,6 +9,7 @@ import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { WebSocket, WebSocketServer } from "ws";
+import { parseListenOptions } from "../scripts/listen-options.mjs";
 import type { EvolutionResponse } from "../src/protocol";
 import type { FromWorker, ToWorker } from "./worker";
 import {
@@ -433,13 +434,11 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  const port = Number(process.env.PORT ?? 4173);
-  if (!Number.isInteger(port) || port < 1 || port > 65535)
-    throw new Error("PORT must be from 1 through 65535.");
-  const server = await startEvolutionServer({
-    port,
+  const options = parseListenOptions(process.argv.slice(2), {
+    port: process.env.PORT ?? 4173,
     host: process.env.HOST ?? "0.0.0.0",
   });
+  const server = await startEvolutionServer(options);
   console.log(
     `[polyp:vm] HTTP + /api/evolution on port ${server.port}; up to ${MAX_WORKERS} Node worker threads`,
   );
