@@ -3,6 +3,8 @@ import type { Genome } from "../src/simulation";
 import type { PreviewFrame, RunConfig } from "../src/research/types";
 import { HttpError } from "./validation";
 
+export const PREVIEW_TIMEOUT_MS = 120_000;
+
 /** Independent worker; at most one simulation and eight waiting previews. */
 export class PreviewService {
   private worker?: Worker;
@@ -101,9 +103,9 @@ export class PreviewService {
     });
     this.timer = setTimeout(() => {
       void this.fail(
-        new HttpError(422, "Preview exceeded its 30-second compute limit."),
+        new HttpError(422, "Preview exceeded its 120-second compute limit."),
       );
-    }, 30_000);
+    }, PREVIEW_TIMEOUT_MS);
     this.timer.unref();
   }
   private async fail(error: Error): Promise<void> {

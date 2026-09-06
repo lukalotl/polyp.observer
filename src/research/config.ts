@@ -1,11 +1,12 @@
 import { PRESETS, type Genome } from "../simulation";
 import type { RunConfig } from "./types";
+import { MAX_GRID_SIZE, MAX_CA_STEPS, maxHorizon } from "./limits";
 
 /** Scientific model is fixed: five states, 45 genes, zero-quiescence, Moore/zero halo. */
 export const DEFAULT_RUN_CONFIG: RunConfig = {
   name: "Experiment",
-  size: 49,
-  steps: 96,
+  size: 129,
+  steps: 2048,
   seed: "cross",
   trainingSeeds: [1729],
   validationSeeds: [],
@@ -125,11 +126,13 @@ export function validateRunConfig(value: unknown): RunConfig {
     throw new RangeError(
       "Name must contain 1 through 80 characters and not be blank.",
     );
-  const size = integer(v.size, 9, 129, "Size");
-  const steps = integer(v.steps, 8, 1024, "Steps");
+  const size = integer(v.size, 9, MAX_GRID_SIZE, "Size");
+  const steps = integer(v.steps, 8, MAX_CA_STEPS, "Steps");
   if (size % 2 !== 1) throw new RangeError("Size must be odd.");
-  if (size * size * steps > 16_000_000)
-    throw new RangeError("Fixture exceeds 16 million cell sites.");
+  if (steps > maxHorizon(size))
+    throw new RangeError(
+      `At grid size ${size}, the work budget allows at most ${maxHorizon(size).toLocaleString("en-US")} CA timesteps. Reduce the grid or horizon.`,
+    );
   const populationSize = integer(v.populationSize, 8, 512, "Population size");
   const eliteCount = integer(
     v.eliteCount,

@@ -77,7 +77,7 @@ describe("streaming scalar evaluator versus frozen space-time golden engine", ()
           }
     },
   );
-  it("matches full default fixtures for all presets and all three objective semantics", () => {
+  it("matches the original full-history fixtures for all presets and all three objective semantics", () => {
     for (const preset of PRESETS)
       for (const objective of [
         "complexity",
@@ -86,6 +86,8 @@ describe("streaming scalar evaluator versus frozen space-time golden engine", ()
       ] as Objective[]) {
         const cfg = config({
           ...DEFAULT_RUN_CONFIG,
+          size: 49,
+          steps: 96,
           seed: preset.seed,
           objective,
         });

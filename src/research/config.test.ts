@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { PRESETS } from "../simulation";
 import { DEFAULT_RUN_CONFIG, validateRunConfig } from "./config";
+import {
+  MAX_GRID_SIZE,
+  MAX_CA_STEPS,
+  MAX_FIXTURE_SITES,
+  SIMULATION_SCALES,
+  maxHorizon,
+} from "./limits";
 
 describe("pinned, bounded research configuration", () => {
   it("defines the reproducible default experiment and returns detached arrays/weights", () => {
     const result = validateRunConfig(DEFAULT_RUN_CONFIG);
     expect(result).toEqual({
       name: "Experiment",
-      size: 49,
-      steps: 96,
+      size: 129,
+      steps: 2048,
       seed: "cross",
       trainingSeeds: [1729],
       validationSeeds: [],
@@ -49,10 +56,10 @@ describe("pinned, bounded research configuration", () => {
   it.each([
     { size: 8 },
     { size: 10 },
-    { size: 131 },
+    { size: MAX_GRID_SIZE + 2 },
     { steps: 7 },
-    { steps: 1025 },
-    { size: 129, steps: 1024 },
+    { steps: MAX_CA_STEPS + 1 },
+    { size: MAX_GRID_SIZE, steps: maxHorizon(MAX_GRID_SIZE) + 1 },
     { populationSize: 7 },
     { populationSize: 513 },
     { populationSize: NaN },
@@ -124,8 +131,8 @@ describe("pinned, bounded research configuration", () => {
     expect(
       validateRunConfig({
         ...DEFAULT_RUN_CONFIG,
-        size: 129,
-        steps: 961,
+        size: MAX_GRID_SIZE,
+        steps: maxHorizon(MAX_GRID_SIZE),
         populationSize: 512,
         eliteCount: 256,
         immigrantRate: 0.5,
@@ -156,5 +163,26 @@ describe("pinned, bounded research configuration", () => {
         cacheSize: 0,
       }),
     ).toBeDefined();
+  });
+  it("admits deep and wide experiments, with a separate per-fixture work ceiling", () => {
+    for (const { size, steps } of [
+      ...SIMULATION_SCALES,
+      { size: 513, steps: 2048 },
+    ]) {
+      expect(
+        validateRunConfig({ ...DEFAULT_RUN_CONFIG, size, steps }),
+      ).toMatchObject({ size, steps });
+      expect(size * size * steps).toBeLessThanOrEqual(MAX_FIXTURE_SITES);
+    }
+    expect(
+      validateRunConfig({
+        ...DEFAULT_RUN_CONFIG,
+        size: 127,
+        steps: MAX_CA_STEPS,
+      }).steps,
+    ).toBe(65_536);
+    expect(() =>
+      validateRunConfig({ ...DEFAULT_RUN_CONFIG, size: 1025, steps: 2048 }),
+    ).toThrow(/At grid size 1025.*Reduce the grid or horizon/);
   });
 });

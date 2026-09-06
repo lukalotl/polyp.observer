@@ -17,7 +17,7 @@ import {
   type RunAction,
 } from "../src/research/types";
 import { RunManager, type ManagerOptions } from "./manager";
-import { PreviewService } from "./preview";
+import { PreviewService, PREVIEW_TIMEOUT_MS } from "./preview";
 import {
   MAX_BODY_BYTES,
   MAX_COMMAND_BYTES,
@@ -260,7 +260,7 @@ export async function startResearchServer(options: ServerOptions = {}) {
           response.on("end", done);
         },
       );
-      request.setTimeout(60_000, () =>
+      request.setTimeout(PREVIEW_TIMEOUT_MS + 5000, () =>
         request.destroy(new Error("Canonical API timed out.")),
       );
       request.on("error", () => {

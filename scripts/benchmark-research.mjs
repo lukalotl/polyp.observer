@@ -15,6 +15,7 @@ try {
     stdin: {
       contents: `
     export { DEFAULT_RUN_CONFIG } from "./src/research/config.ts";
+    export { MAX_GRID_SIZE, MAX_CA_STEPS, maxHorizon } from "./src/research/limits.ts";
     export { evaluateGenome } from "./src/research/evaluate.ts";
     export { initializePopulation, advanceGeneration, generationSnapshot } from "./src/research/engine.ts";
     export { simulate, fitness, mutate, PRESETS } from "./src/simulation/index.ts";
@@ -30,6 +31,9 @@ try {
   });
   const {
     DEFAULT_RUN_CONFIG,
+    MAX_GRID_SIZE,
+    MAX_CA_STEPS,
+    maxHorizon,
     evaluateGenome,
     simulate,
     fitness,
@@ -56,7 +60,7 @@ try {
     workloads: [],
   };
   for (const workload of [
-    { label: "default-cross", size: 49, steps: 96, seed: "cross" },
+    { label: "original-cross", size: 49, steps: 96, seed: "cross" },
     { label: "larger-islands", size: 97, steps: 192, seed: "islands" },
   ]) {
     const config = { ...structuredClone(DEFAULT_RUN_CONFIG), ...workload };
@@ -105,7 +109,13 @@ try {
       legacyRetainedLayersBytes: config.size ** 2 * config.steps,
     });
   }
-  const config = { ...structuredClone(DEFAULT_RUN_CONFIG), populationSize: 64 };
+  // Keep the original benchmark comparable after increasing new-run defaults.
+  const config = {
+    ...structuredClone(DEFAULT_RUN_CONFIG),
+    size: 49,
+    steps: 96,
+    populationSize: 64,
+  };
   let state = await initializePopulation(config);
   const initialEvaluations = state.evaluations,
     start = performance.now();
@@ -120,8 +130,14 @@ try {
     finalMetrics: generationSnapshot(state).metrics,
     checkpointJSONBytes: Buffer.byteLength(JSON.stringify(state)),
   };
-  report.maxAcceptedStreamingTypedArrayPayloadBytes = 2 * 131 ** 2 + 8 * 961; // largest admitted product at size 129
-  report.maxAcceptedStreamingConservativeBoundBytes = 2 * 131 ** 2 + 8 * 1024; // independent per-axis limits
+  report.maxAcceptedStreamingTypedArrayPayloadBytes = Math.max(
+    ...Array.from({ length: (MAX_GRID_SIZE - 9) / 2 + 1 }, (_, i) => {
+      const size = 9 + i * 2;
+      return 2 * (size + 2) ** 2 + 8 * maxHorizon(size);
+    }),
+  );
+  report.maxAcceptedStreamingConservativeBoundBytes =
+    2 * (MAX_GRID_SIZE + 2) ** 2 + 8 * MAX_CA_STEPS;
   report.sink = sink;
   console.log(JSON.stringify(report, null, 2));
 } finally {

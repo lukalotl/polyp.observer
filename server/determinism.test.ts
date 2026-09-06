@@ -17,6 +17,7 @@ import {
   generationSnapshot,
 } from "../src/research/engine";
 import { simulate } from "../src/simulation";
+import { evaluateGenome } from "../src/research/evaluate";
 import { parseListenOptions } from "../scripts/listen-options.mjs";
 import type {
   RunConfig,
@@ -251,6 +252,59 @@ test(
     });
   },
 );
+
+test("large grids and deep horizons execute on real workers, preview fully, and resume exported checkpoints", async () => {
+  await fixture(async (port) => {
+    const genome = Array<number>(45).fill(0);
+    genome[9] = 2;
+    genome[18] = 3;
+    genome[27] = 4;
+    genome[36] = 1;
+    const config = base({
+      size: 257,
+      steps: 8192,
+      seed: "point",
+      seedGenome: genome,
+      mutationRate: 0,
+      immigrantRate: 0,
+      crossover: "none",
+    });
+    const run = (await api(port, "runs", { config })) as RunDetail;
+    await api(port, `runs/${run.summary.id}/actions`, { action: "step" });
+    const evaluated = await state(port, run.summary.id, "paused", 0);
+    const expected = evaluateGenome(genome, config);
+    assert.equal(evaluated.snapshot!.champion.fitness, expected.fitness);
+    assert.equal(evaluated.snapshot!.champion.metrics.lifetime, 8192);
+    const frame = (await api(port, `runs/${run.summary.id}/preview`, {
+      genome,
+      seed: 1729,
+    })) as PreviewFrame;
+    assert.equal(frame.totalSteps, 8192);
+    assert.equal(frame.layerTimes.at(-1), 8191);
+    assert.equal(frame.simulation.population.length, 8192);
+    for (const [index, time] of frame.layerTimes.entries()) {
+      const layer = Buffer.from(frame.simulation.layers[index], "base64");
+      assert.equal(layer.length, 257 ** 2);
+      assert.equal(layer[(257 ** 2 - 1) / 2], 1 + (time % 4));
+    }
+    const saved = (await api(
+      port,
+      `runs/${run.summary.id}/checkpoint`,
+    )) as RunCheckpoint;
+    const imported = (await api(port, "runs/import", {
+      checkpoint: saved,
+    })) as RunDetail;
+    await api(port, `runs/${imported.summary.id}/actions`, { action: "step" });
+    const resumed = await state(port, imported.summary.id, "paused", 1);
+    assert.equal(resumed.snapshot!.champion.metrics.lifetime, 8192);
+    assert.equal(resumed.config.steps, 8192);
+    assert.equal(resumed.config.size, 257);
+    assert.equal(
+      (await api(port, `runs/${run.summary.id}`)).summary.generation,
+      0,
+    );
+  });
+});
 
 test("historic genome preview is exactly sampled legacy data, full horizon statistics, complete planes and bounded voxels", async () => {
   await fixture(async (port) => {

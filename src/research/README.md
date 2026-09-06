@@ -4,7 +4,8 @@ This is a reproducible experiment engine for the existing visual CA, **not a
 reproduction of a published biological model**. Its three objectives are bounded,
 transparent heuristics. Higher fitness is evidence about these finite fixtures,
 not biological validity or generalization. The legacy `src/simulation` remains an
-unchanged golden reference and preview renderer.
+unchanged, small-volume golden reference. Training and preview share
+`trajectory.ts`, a streaming simulator with optional sampled-plane observation.
 
 ## Public contract
 
@@ -141,8 +142,11 @@ cannot claim as committed search work.
 
 ## Validation and bounds
 
-Odd size 9..129; steps 8..1024; size²×steps ≤16,000,000; population 8..512;
-elites 0..population−1; tournament 2..min(32,population); mutation/crossover rates
+Odd size 9..1025; steps 8..65536; size²×steps ≤1,073,741,824; population 8..512;
+new-run defaults are size 129 and 2048 timesteps. The work bound is separate from
+the streaming memory bound: both per-axis maxima cannot be used together.
+
+Elites 0..population−1; tournament 2..min(32,population); mutation/crossover rates
 0..1; immigrant rate 0..0.5 with the floored count fitting non-elite slots; 1..8
 training and 0..8 validation seeds; workers 1..6; cache 0..8192; maxGenerations
 0..1e9; checkpoint seconds 2..300; snapshotEvery 1..10000; retainedSnapshots 2..128;
@@ -184,7 +188,7 @@ per round, **one fixture per candidate, inline single-thread, uncached**:
 
 These are measured medians, not universal speedup claims. Workload density,
 extinction, CPU contention, thread-pool size and horizons affect throughput.
-A separate full retained 64-member default run completed 10 generations and 511
+A separate full retained 64-member original 49×49×96 run completed 10 generations and 511
 new fixture evaluations in 1.616 s (316.23 fixture eval/s, including genetic/cache
 work), ended with best 0.9990260651951529 and 59 unique genotypes, and serialized
 to a 268,624-byte checkpoint. Later validation-hardening edits may slightly alter
@@ -192,8 +196,28 @@ wall time, but not the deterministic final state. The script emits all raw times
 engine counters and JSON size and can be rerun to measure the current machine.
 
 **Analytical live typed-array payload**, not measured process RSS: streaming uses
-`2*(size+2)² + 8*steps` bytes (5,970 bytes at default; 21,138 at the larger fixture),
+`2*(size+2)² + 8*steps` bytes (5,970 bytes at 49×49×96; 21,138 at the larger fixture),
 versus legacy `2*(size+2)² + size²*steps` bytes (235,698 and 1,826,130 respectively).
-The largest admitted streaming combination is 42,010 bytes (129, 961). These
+The new default uses 50,706 typed-buffer bytes. The independent upper bound
+is 2*(1025+2)² + 8*65,536 = 2,633,746 bytes (the work budget makes the actual
+maximum smaller). Preview additionally retains at most 8 MiB of full spatial
+planes and a full-horizon population series. These
 bounds exclude JS metadata, state/population/cache, worker heaps and garbage
 awaiting collection. There is no claim that process RSS equals lattice payload.
+
+
+## Deep preview sampling
+
+`sample.ts` observes the same streaming trajectory used by scoring, without
+retaining its full space-time volume. It starts with a stride that fits 128
+layers and an 8 MiB retained-plane budget, then doubles that stride as needed
+to keep at most 180,000 occupied voxels. Doubling only removes samples; every
+plane required by the final stride was already captured. The first and last
+planes are always retained, with their actual CA time indices. No spatial cells
+are dropped. If those two planes alone exceed the voxel limit, preview returns
+an explicit error; scientific evaluation still supports that configuration.
+
+The full population series and summary metrics include every timestep, even
+when previews are heavily sampled or extinction occurs early. Scoring keeps
+its original arithmetic, so existing checkpoints retain their model identity.
+Changing size or horizon still requires a fresh population evaluation.
