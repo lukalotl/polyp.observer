@@ -587,7 +587,19 @@ describe("API-backed research workbench", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Inspector view options" }),
     );
+    const compression = screen.getByRole("checkbox", { name: "Compress time" });
+    expect(compression).not.toBeChecked();
+    expect(volumeProps().compressTime).toBe(false);
+    expect(screen.getByLabelText("Time scale")).toHaveTextContent("Time 1:1");
+    fireEvent.click(compression);
+    expect(volumeProps().compressTime).toBe(true);
+    expect(screen.getByLabelText("Time scale")).toHaveTextContent(
+      "Time compressed",
+    );
+    fireEvent.click(compression);
+    expect(volumeProps().compressTime).toBe(false);
     field("Preview display", "slice");
+    expect(compression).toBeDisabled();
     expect(volumeProps()).toMatchObject({ view: "top", visibleLayers: 1 });
     expect(volumeProps().simulation.layers).toHaveLength(1);
     field("Render material", "points");
@@ -621,6 +633,62 @@ describe("API-backed research workbench", () => {
     expect(
       screen.getByRole("combobox", { name: "Preview fixture" }),
     ).toHaveValue("23");
+  });
+  it("requests consecutive interior windows and restores the whole horizon without job actions", async () => {
+    await mountApp();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Inspector view options" }),
+    );
+    field("Preview start timestep", 3);
+    field("Preview end timestep", 5);
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(
+      JSON.parse(
+        String(http.pending("/api/runs/run-a/preview", "POST").options.body),
+      ),
+    ).toMatchObject({ range: { start: 3, end: 5 } });
+    const partial = {
+      ...fixture.preview,
+      layerTimes: [3, 4, 5],
+      simulation: {
+        ...fixture.preview.simulation,
+        layers: fixture.preview.simulation.layers.slice(3, 6),
+      },
+    };
+    await http.reply("/api/runs/run-a/preview", partial, "POST");
+    expect(volumeProps().simulation.layerTimes).toEqual([3, 4, 5]);
+    expect(screen.getByLabelText("Time scale")).toHaveTextContent(
+      "Every step · t 3–5",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Full horizon" }));
+    expect(
+      JSON.parse(
+        String(http.pending("/api/runs/run-a/preview", "POST").options.body),
+      ),
+    ).not.toHaveProperty("range");
+    await http.reply("/api/runs/run-a/preview", fixture.preview, "POST");
+    expect(volumeProps().simulation.layers).toHaveLength(
+      fixture.preview.totalSteps,
+    );
+    expect(
+      http.requests.filter((request) => request.path.endsWith("/actions")),
+    ).toHaveLength(0);
+  });
+  it("explains worker admission while a run is waiting to initialize", async () => {
+    const waiting = changed(fixture.detail, {
+      status: "queued",
+      generation: -1,
+      queuePosition: 1,
+      workerCount: 0,
+    });
+    await mountApp(waiting);
+    expect(
+      screen.getByRole("button", { name: `Select run ${waiting.config.name}` }),
+    ).toHaveTextContent("Waiting for capacity");
+    expect(screen.getByText(/Queued #1: waiting for/)).toHaveTextContent(
+      "Runs start in queue order",
+    );
+    expect(screen.queryByText("Initialization failed")).not.toBeInTheDocument();
   });
   it("does not pause jobs on unmount and keeps native controls available after observer-only disconnect", async () => {
     const running = changed(fixture.detail, {

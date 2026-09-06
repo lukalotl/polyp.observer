@@ -1,3 +1,5 @@
+import { decodePreview } from "../src/research/preview";
+import { expandPreviewLayer } from "../src/research/previewLayers";
 /** Service-level scientific oracles: real TCP and worker pools, not mocked messages. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -282,8 +284,10 @@ test("large grids and deep horizons execute on real workers, preview fully, and 
     assert.equal(frame.totalSteps, 8192);
     assert.equal(frame.layerTimes.at(-1), 8191);
     assert.equal(frame.simulation.population.length, 8192);
+    assert.equal(frame.layerTimes.length, 8192);
+    const decoded = decodePreview(frame);
     for (const [index, time] of frame.layerTimes.entries()) {
-      const layer = Buffer.from(frame.simulation.layers[index], "base64");
+      const layer = expandPreviewLayer(decoded.layers[index], config.size);
       assert.equal(layer.length, 257 ** 2);
       assert.equal(layer[(257 ** 2 - 1) / 2], 1 + (time % 4));
     }
@@ -306,7 +310,7 @@ test("large grids and deep horizons execute on real workers, preview fully, and 
   });
 });
 
-test("historic genome preview is exactly sampled legacy data, full horizon statistics, complete planes and bounded voxels", async () => {
+test("historic genome preview is exactly consecutive legacy data, full horizon statistics, complete planes and bounded voxels", async () => {
   await fixture(async (port) => {
     const genome = Array<number>(45).fill(1);
     genome[0] = 0;
@@ -330,26 +334,74 @@ test("historic genome preview is exactly sampled legacy data, full horizon stati
     assert.equal(preview.totalSteps, config.steps);
     assert.equal(preview.layerTimes[0], 0);
     assert.equal(preview.layerTimes.at(-1), config.steps - 1);
-    assert.ok(preview.layerTimes.length <= 128);
-    assert.ok(preview.stride > 1);
+    assert.equal(preview.layerTimes.length, config.steps);
+    assert.equal(preview.stride, 1);
     assert.deepEqual(preview.simulation.population, simulation.population);
     assert.equal(preview.simulation.activity, simulation.activity);
     assert.equal(preview.simulation.diversity, simulation.diversity);
     assert.equal(preview.simulation.occupancy, simulation.occupancy);
     let occupied = 0;
+    const decoded = decodePreview(preview);
     for (const [i, t] of preview.layerTimes.entries()) {
-      const actual = Buffer.from(preview.simulation.layers[i], "base64");
+      const actual = Buffer.from(
+        expandPreviewLayer(decoded.layers[i], config.size),
+      );
       assert.deepEqual(actual, Buffer.from(simulation.layers[t]));
       assert.equal(actual.length, config.size ** 2);
       occupied += simulation.population[t];
     }
-    assert.ok(occupied <= 180_000);
+    assert.equal(
+      occupied,
+      simulation.population.reduce((sum, value) => sum + value, 0),
+    );
     assert.equal(preview.simulation.population.length, 256);
     assert.deepEqual(
       await api(port, `runs/${run.summary.id}/preview`, { genome, seed: -777 }),
       preview,
       "bounded cache is exact",
     );
+    for (const range of [
+      { start: 19, end: 37 },
+      { start: 204, end: 204 },
+    ]) {
+      const window = (await api(port, `runs/${run.summary.id}/preview`, {
+        genome,
+        seed: -777,
+        range,
+      })) as PreviewFrame;
+      assert.deepEqual(
+        window.layerTimes,
+        Array.from(
+          { length: range.end - range.start + 1 },
+          (_, i) => range.start + i,
+        ),
+      );
+      const decodedWindow = decodePreview(window);
+      for (const [index, layer] of decodedWindow.layers.entries())
+        assert.deepEqual(
+          expandPreviewLayer(layer, config.size),
+          simulation.layers[range.start + index],
+        );
+      assert.deepEqual(
+        window.simulation.population,
+        preview.simulation.population,
+      );
+      assert.equal(window.simulation.lifetime, preview.simulation.lifetime);
+      assert.equal(window.totalSteps, config.steps);
+    }
+    const invalid = await fetch(
+      `http://127.0.0.1:${port}/api/runs/${run.summary.id}/preview`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          genome,
+          seed: -777,
+          range: { start: 37, end: 19 },
+        }),
+      },
+    );
+    assert.equal(invalid.status, 400);
     assert.equal(
       (await api(port, `runs/${run.summary.id}`)).summary.generation,
       -1,
@@ -568,9 +620,10 @@ test("binary and sixteen-state jobs evaluate, preview, export, import and contin
         seed: 1729,
       });
       assert.equal(preview.simulation.lifetime, stateCount - 1);
+      const decoded = decodePreview(preview);
       for (let time = 0; time < stateCount - 1; time++)
         assert.equal(
-          Buffer.from(preview.simulation.layers[time], "base64")[40],
+          expandPreviewLayer(decoded.layers[time], cfg.size)[40],
           time + 1,
         );
       const exported = await api(port, `runs/${run.summary.id}/checkpoint`);

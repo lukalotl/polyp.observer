@@ -276,8 +276,8 @@ export default function RunDialog({
                 <p className="config-note">
                   Up to {maxHorizon(draft.size).toLocaleString("en-US")}{" "}
                   timesteps at this grid size. Larger grids and longer horizons
-                  increase evaluation time. The preview samples time; fitness
-                  evaluates the full horizon.
+                  increase evaluation time. The preview and fitness both use
+                  every timestep.
                 </p>
                 <label className="config-field">
                   <span>Seed pattern</span>

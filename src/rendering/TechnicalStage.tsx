@@ -1,6 +1,11 @@
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { LAYER_HEIGHT, layerTimeLabel, type VolumeBounds } from "./volumeData";
+import {
+  layerTimeLabel,
+  referenceScale,
+  type VolumeBounds,
+  type TimeLayout,
+} from "./volumeData";
 
 type Point3 = [number, number, number];
 
@@ -79,14 +84,14 @@ function StageLabel({
 /** Optional spatial frame; sampled layer heights never stand in for actual CA time labels. */
 export default function TechnicalStage({
   size,
-  layers,
+  timeLayout,
   annotations = false,
   layerTimes,
   occupiedBounds,
   specimen = false,
 }: {
   size: number;
-  layers: number;
+  timeLayout: TimeLayout;
   annotations?: boolean;
   layerTimes?: number[];
   occupiedBounds?: VolumeBounds | null;
@@ -100,9 +105,14 @@ export default function TechnicalStage({
   const floor = occupiedBounds ? occupiedBounds.min[1] - 0.2 : -0.53;
   const height = occupiedBounds
     ? occupiedBounds.max[1] + 0.17
-    : Math.max(1, layers - 1) * LAYER_HEIGHT + 0.5;
-  const axisX = minX - 2.5;
-  const axisZ = maxZ + 1.7;
+    : (timeLayout.heights.at(-1) ?? 0) + 0.5;
+  const scale = referenceScale(
+    size,
+    timeLayout.heights.at(-1) ?? 0,
+    occupiedBounds,
+  );
+  const axisX = minX - 2.5 * scale;
+  const axisZ = maxZ + 1.7 * scale;
   const { grid, corners, axis, frame, ticks } = useMemo(() => {
     const grid: number[] = [],
       corners: number[] = [],
@@ -128,22 +138,33 @@ export default function TechnicalStage({
         }
         line(frame, [x, floor, z], [x, height, z]);
       }
-    line(axis, [axisX, floor, axisZ], [axisX, height + 1, axisZ]);
-    const first = Math.max(0, Math.ceil(floor / LAYER_HEIGHT));
-    const last = Math.min(layers - 1, Math.floor(height / LAYER_HEIGHT));
-    const interval = Math.max(1, Math.round((last - first) / 6));
-    const tickLayers = Array.from(
-      { length: Math.max(0, Math.floor((last - first) / interval) + 1) },
-      (_, i) => first + i * interval,
+    line(axis, [axisX, floor, axisZ], [axisX, height + scale, axisZ]);
+    const visible = timeLayout.heights.flatMap((y, index) =>
+      y >= floor && y <= height ? [index] : [],
     );
-    if (last >= first && tickLayers.at(-1) !== last) tickLayers.push(last);
+    const interval = Math.max(1, Math.ceil((visible.length - 1) / 6));
+    const tickLayers = visible.filter((_, index) => index % interval === 0);
+    const last = visible.at(-1);
+    if (last !== undefined && tickLayers.at(-1) !== last) tickLayers.push(last);
     tickLayers.forEach((layer) => {
-      const y = layer * LAYER_HEIGHT;
-      line(axis, [axisX - 0.48, y, axisZ], [axisX + 0.48, y, axisZ]);
-      ticks.push({ layer, position: [axisX - 1.8, y, axisZ] });
+      const y = timeLayout.heights[layer];
+      line(
+        axis,
+        [axisX - 0.48 * scale, y, axisZ],
+        [axisX + 0.48 * scale, y, axisZ],
+      );
+      ticks.push({ layer, position: [axisX - 1.8 * scale, y, axisZ] });
     });
-    line(axis, [minX, floor, maxZ + 2], [maxX, floor, maxZ + 2]);
-    line(axis, [maxX + 2, floor, minZ], [maxX + 2, floor, maxZ]);
+    line(
+      axis,
+      [minX, floor, maxZ + 2 * scale],
+      [maxX, floor, maxZ + 2 * scale],
+    );
+    line(
+      axis,
+      [maxX + 2 * scale, floor, minZ],
+      [maxX + 2 * scale, floor, maxZ],
+    );
     return { grid, corners, axis, frame, ticks };
   }, [
     annotations,
@@ -151,7 +172,8 @@ export default function TechnicalStage({
     axisZ,
     floor,
     height,
-    layers,
+    timeLayout,
+    scale,
     minX,
     maxX,
     minZ,
@@ -210,23 +232,24 @@ export default function TechnicalStage({
               key={tick.layer}
               text={layerTimeLabel(tick.layer, layerTimes)}
               position={tick.position}
+              scale={1.8 * scale}
             />
           ))}
           <StageLabel
-            text="t"
-            position={[axisX, height + 2.5, axisZ]}
-            scale={1.8}
+            text="Y (t)"
+            position={[axisX, height + 2.5 * scale, axisZ]}
+            scale={1.8 * scale}
             opacity={0.85}
           />
           <StageLabel
             text="X"
-            position={[maxX + 2, floor, maxZ + 2.7]}
-            scale={1.4}
+            position={[maxX + 2 * scale, floor, maxZ + 2.7 * scale]}
+            scale={1.4 * scale}
           />
           <StageLabel
-            text="Y"
-            position={[maxX + 3, floor, minZ - 1]}
-            scale={1.4}
+            text="Z"
+            position={[maxX + 3 * scale, floor, minZ - scale]}
+            scale={1.4 * scale}
           />
         </>
       )}

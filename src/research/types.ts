@@ -209,10 +209,16 @@ export interface PreviewFrame {
   genome: Genome;
   seed: number;
   simulation: Omit<Simulation, "layers"> & { layers: string[] };
+  /** Omitted by older servers, whose planes are dense bytes. */
+  encoding?: "sparse-u32le" | "adaptive-v1";
   /** Actual CA timestep for each returned layer (preview can be sampled). */
   layerTimes: number[];
   totalSteps: number;
   stride: number;
+}
+export interface PreviewRange {
+  start: number;
+  end: number;
 }
 export type BatchEvaluator = (
   genomes: Genome[],

@@ -11,7 +11,7 @@ function fittedCamera(options: Parameters<typeof fitVolumeCamera>[0]) {
     options.height / 2,
     -options.height / 2,
     0.1,
-    1000,
+    fit.far,
   );
   camera.position.copy(fit.position);
   camera.quaternion.copy(fit.quaternion);
@@ -36,6 +36,31 @@ function projectBox(
 }
 
 describe("full-viewport camera framing", () => {
+  it("keeps a 65,536-step volume in the frustum for every view and both fit modes", () => {
+    for (const fitMode of ["world", "specimen"] as const)
+      for (const view of ["iso", "front", "top"] as const)
+        for (const annotations of [false, true]) {
+          const camera = fittedCamera({
+            latticeSize: 9,
+            layers: 65536,
+            timeHeight: 65535,
+            width: 390,
+            height: 750,
+            fitMode,
+            view,
+            annotations,
+            occupiedBounds: {
+              min: [-4.46, -0.46, -4.46],
+              max: [4.46, 65535.46, 4.46],
+            },
+          });
+          const projected = projectBox(camera, 4.46, -0.46, 65535.46);
+          for (const axis of ["x", "y", "z"] as const) {
+            expect(projected.min[axis]).toBeGreaterThan(-1);
+            expect(projected.max[axis]).toBeLessThan(1);
+          }
+        }
+  });
   it.each([
     { width: 1440, height: 820 },
     { width: 390, height: 750 },

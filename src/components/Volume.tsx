@@ -11,6 +11,11 @@ import { OrbitControls } from "@react-three/drei";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import TechnicalStage from "../rendering/TechnicalStage";
+import DenseVolume from "./DenseVolume";
+import {
+  needsDenseRenderer,
+  packDenseVolume,
+} from "../rendering/denseVolumeData";
 import {
   fitVolumeCamera,
   type VolumeFitMode,
@@ -38,6 +43,8 @@ export interface VolumeProps {
   grain: boolean;
   autoRotate: boolean;
   resetKey: number;
+  /** Local display only. False preserves one timestep per spatial cell unit. */
+  compressTime?: boolean;
   annotations?: boolean;
   fitMode?: VolumeFitMode;
   view?: VolumeView;
@@ -63,6 +70,8 @@ function useReducedMotion() {
 function CameraRig({
   latticeSize,
   layers,
+  timeHeight,
+  timeScale,
   autoRotate,
   resetKey,
   annotations,
@@ -72,6 +81,8 @@ function CameraRig({
 }: {
   latticeSize: number;
   layers: number;
+  timeHeight: number;
+  timeScale: number;
   autoRotate: boolean;
   resetKey: number;
   annotations: boolean;
@@ -84,6 +95,7 @@ function CameraRig({
   const previousFit = useRef<{
     zoom: number;
     resetKey: number;
+    timeScale: number;
     fitMode: VolumeFitMode;
     view: VolumeView;
     target: THREE.Vector3;
@@ -100,6 +112,7 @@ function CameraRig({
     const fit = fitVolumeCamera({
       latticeSize,
       layers,
+      timeHeight,
       width: size.width,
       height: size.height,
       annotations,
@@ -112,7 +125,8 @@ function CameraRig({
       !previous ||
       previous.resetKey !== resetKey ||
       previous.fitMode !== fitMode ||
-      previous.view !== view
+      previous.view !== view ||
+      previous.timeScale !== timeScale
     ) {
       camera.up.set(0, view === "top" ? 0 : 1, view === "top" ? -1 : 0);
       camera.position.copy(fit.position);
@@ -132,12 +146,18 @@ function CameraRig({
     previousFit.current = {
       zoom: fit.zoom,
       resetKey,
+      timeScale,
       fitMode,
       view,
       target: fit.target.clone(),
     };
     orbit.minZoom = fit.zoom * 0.48;
-    orbit.maxZoom = fit.zoom * 5;
+    orbit.maxZoom = Math.max(fit.zoom * 5, 48);
+    // Include the user's current orbit distance when preserving camera position.
+    camera.far = Math.max(
+      fit.far,
+      camera.position.distanceTo(orbit.target) * 4,
+    );
     camera.updateProjectionMatrix();
     invalidate();
   }, [
@@ -146,6 +166,8 @@ function CameraRig({
     invalidate,
     latticeSize,
     layers,
+    timeHeight,
+    timeScale,
     fitMode,
     view,
     occupiedBounds,
@@ -310,17 +332,44 @@ function Scene({
   autoRotate,
   resetKey,
   annotations = false,
+  compressTime = false,
   fitMode = "world",
   view = "iso",
   onLayerSelect,
 }: VolumeProps) {
-  const data = useMemo(() => packVolume(simulation), [simulation]);
+  const { gl } = useThree();
+  const dense = useMemo(
+    () =>
+      needsDenseRenderer(simulation)
+        ? packDenseVolume(
+            simulation,
+            compressTime,
+            Math.min(
+              1024,
+              gl
+                .getContext()
+                .getParameter(
+                  (gl.getContext() as WebGL2RenderingContext)
+                    .MAX_3D_TEXTURE_SIZE,
+                ),
+            ),
+          )
+        : null,
+    [simulation, compressTime, gl],
+  );
+  const data = useMemo(
+    () => (dense ? null : packVolume(simulation, compressTime)),
+    [simulation, compressTime, dense],
+  );
   const colors = useMemo(
-    () => instanceColors(data, palette, simulation.layers.length),
+    () =>
+      data
+        ? instanceColors(data, palette, simulation.layers.length)
+        : new Float32Array(0),
     [data, palette, simulation.layers.length],
   );
-  const count = visibleCount(data, visibleLayers);
-  const props = { data, colors, count, grain, onLayerSelect };
+  const count = data ? visibleCount(data, visibleLayers) : 0;
+  const layout = (dense ?? data)!;
   return (
     <>
       <color attach="background" args={["#101a17"]} />
@@ -338,26 +387,52 @@ function Scene({
       />
       <TechnicalStage
         size={simulation.size}
-        layers={simulation.layers.length}
+        timeLayout={layout.timeLayout}
         annotations={annotations}
         layerTimes={simulation.layerTimes}
-        occupiedBounds={fitMode === "specimen" ? data.bounds : null}
+        occupiedBounds={fitMode === "specimen" ? layout.bounds : null}
         specimen={fitMode === "specimen"}
       />
-      {mode === "voxels" ? (
-        <VoxelObject {...props} />
+      {dense ? (
+        <DenseVolume
+          data={dense}
+          visibleLayers={visibleLayers}
+          palette={palette}
+          grain={grain}
+          mode={mode}
+          onLayerSelect={onLayerSelect}
+        />
       ) : (
-        <PointObject {...props} />
+        data &&
+        (mode === "voxels" ? (
+          <VoxelObject
+            data={data}
+            colors={colors}
+            count={count}
+            grain={grain}
+            onLayerSelect={onLayerSelect}
+          />
+        ) : (
+          <PointObject
+            data={data}
+            colors={colors}
+            count={count}
+            grain={grain}
+            onLayerSelect={onLayerSelect}
+          />
+        ))
       )}
       <CameraRig
         latticeSize={simulation.size}
         layers={simulation.layers.length}
+        timeHeight={layout.timeLayout.heights.at(-1) ?? 0}
+        timeScale={layout.timeLayout.scale}
         autoRotate={autoRotate}
         resetKey={resetKey}
         annotations={annotations}
         fitMode={fitMode}
         view={view}
-        occupiedBounds={data.bounds}
+        occupiedBounds={layout.bounds}
       />
     </>
   );

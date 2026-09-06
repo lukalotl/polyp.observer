@@ -1,3 +1,4 @@
+import { expandPreviewLayer } from "./previewLayers";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_RUN_CONFIG,
@@ -152,7 +153,11 @@ describe("state-independent scientific stepping and scoring", () => {
           const population = expected.map((layer) =>
             layer.reduce((sum, s) => sum + Number(s !== 0), 0),
           );
-          expect(actual.simulation.layers).toEqual(expected);
+          expect(
+            actual.simulation.layers.map((layer) =>
+              expandPreviewLayer(layer, cfg.size),
+            ),
+          ).toEqual(expected);
           expect(actual.simulation.population).toEqual(population);
           expect(actual.simulation.lifetime).toBe(
             population.filter(Boolean).length,
@@ -199,7 +204,9 @@ describe("state-independent scientific stepping and scoring", () => {
         Array.from({ length: 32 }, (_, time) => Number(time < count - 1)),
       );
       expect(
-        frame.simulation.layers.slice(0, count - 1).map((layer) => layer[40]),
+        frame.simulation.layers
+          .slice(0, count - 1)
+          .map((layer) => expandPreviewLayer(layer, cfg.size)[40]),
       ).toEqual(Array.from({ length: count - 1 }, (_, i) => i + 1));
       const evaluated = evaluateGenome(genome, cfg);
       expect(evaluated.fitness).toBe((count - 1) / 31);
@@ -216,7 +223,7 @@ describe("state-independent scientific stepping and scoring", () => {
         b = sampleTrajectory(cfg.seedGenome, cfg, -91);
       expect(a).toEqual(b);
       for (const layer of a.simulation.layers)
-        expect(layer.every((state) => state < count)).toBe(true);
+        expect(layer.every((entry) => (entry & 15) < count)).toBe(true);
       expect(a.simulation.layers[0].some((state) => state > 0)).toBe(true);
     },
   );

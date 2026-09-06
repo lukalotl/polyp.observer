@@ -1595,3 +1595,53 @@ input[type="range"]:disabled {
   max-height: 90vh;
   overflow-y: auto;
 }
+
+.time-scale-indicator {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 2;
+  pointer-events: none;
+  font: 9px var(--mono);
+  color: #99ae89;
+  background: #101a17cc;
+  padding: 3px 5px;
+  border-radius: 2px;
+}
+
+.preview-range {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font: 10px var(--mono);
+  color: #99ae89;
+}
+.preview-range > div {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.preview-range input {
+  width: 0;
+  min-width: 0;
+  flex: 1;
+  height: 25px;
+}
+.preview-range button,
+.preview-error button {
+  font-size: 10px;
+  padding: 4px;
+}
+.preview-error button {
+  display: block;
+  margin-top: 6px;
+}
+.queue-notice {
+  padding: 7px 12px;
+  color: #b5bf91;
+  font: 11px/1.5 var(--mono);
+}
+.view-options {
+  max-height: calc(100% - 14px);
+  overflow-y: auto;
+}

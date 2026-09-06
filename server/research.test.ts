@@ -1,3 +1,5 @@
+import { decodePreview } from "../src/research/preview";
+import { expandPreviewLayer } from "../src/research/previewLayers";
 /** Native integration contract: real worker_threads, TCP/WS and isolated durable files.
  * Run via npm run test:server (the test bundle imports the compiled server entry).
  * No browser, mocked evaluator, production data directory or fixed app port is used.
@@ -820,13 +822,16 @@ test(
     assert.equal(frame.simulation.size, previewConfig.size);
     assert.equal(frame.layerTimes[0], 0);
     assert.equal(frame.layerTimes.at(-1), previewConfig.steps - 1);
-    assert.ok(frame.stride > 1);
-    assert.ok(frame.layerTimes.length <= 128);
+    assert.equal(frame.stride, 1);
+    assert.equal(frame.layerTimes.length, previewConfig.steps);
     assert.equal(frame.simulation.layers.length, frame.layerTimes.length);
+    const decoded = decodePreview(frame);
     for (const [index, time] of frame.layerTimes.entries()) {
       assert.ok(index === 0 || time > frame.layerTimes[index - 1]);
       assert.deepEqual(
-        Buffer.from(frame.simulation.layers[index], "base64"),
+        Buffer.from(
+          expandPreviewLayer(decoded.layers[index], previewConfig.size),
+        ),
         Buffer.from(actual.layers[time]),
         `full spatial layer t=${time}`,
       );
@@ -1076,9 +1081,7 @@ async function freePort(): Promise<number> {
   );
   return port;
 }
-async function cli(
-  dir: string,
-): Promise<
+async function cli(dir: string): Promise<
   Endpoint & {
     child: ChildProcessWithoutNullStreams;
     stop: (signal?: NodeJS.Signals) => Promise<void>;

@@ -230,6 +230,16 @@ async function screenArtifact(page: Page, testInfo: TestInfo, name: string) {
 test("the default finite-longevity run uses deep scale and previews its full 2,048-timestep horizon", async ({
   page,
 }, testInfo) => {
+  // Complete dense previews exceed Chromium's default per-response inspector cache.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Network.enable", {
+    maxResourceBufferSize: 128 * 1024 * 1024,
+    maxTotalBufferSize: 192 * 1024 * 1024,
+  });
+  let previewRequestId = "";
+  cdp.on("Network.responseReceived", ({ requestId, response }) => {
+    if (response.url.endsWith("/preview")) previewRequestId = requestId;
+  });
   await page
     .getByRole("button", { name: "New run", exact: true })
     .first()
@@ -276,14 +286,67 @@ test("the default finite-longevity run uses deep scale and previews its full 2,0
   expect(run.summary).toMatchObject({ status: "paused", generation: -1 });
   const frameResponse = await previewed;
   expect(frameResponse.ok()).toBe(true);
-  const frame = await frameResponse.json();
+  await frameResponse.finished();
+  const frame = JSON.parse(
+    (await cdp.send("Network.getResponseBody", { requestId: previewRequestId }))
+      .body,
+  );
   expect(frame.totalSteps).toBe(2048);
   expect(frame.layerTimes.at(-1)).toBe(2047);
+  expect(frame.encoding).toBe("adaptive-v1");
+  expect(frame.stride).toBe(1);
+  expect(frame.layerTimes).toEqual(Array.from({ length: 2048 }, (_, i) => i));
   await expect(
     page.getByRole("region", { name: "Champion inspector" }),
   ).toContainText("2047 / 2047");
   await expect(dialog).not.toBeVisible();
   await screenArtifact(page, testInfo, "default-deep-preview");
+  const mutations = observations.get(page)!.mutations.length;
+  await expect(page.getByLabel("Time scale", { exact: true })).toContainText(
+    "Time 1:1 · Every step · t 0–2047",
+  );
+  await page.getByRole("button", { name: "Inspector view options" }).click();
+  const compression = page.getByRole("checkbox", { name: "Compress time" });
+  await expect(compression).not.toBeChecked();
+  await compression.check();
+  await expect(page.getByLabel("Time scale", { exact: true })).toContainText(
+    "Time compressed",
+  );
+  await compression.uncheck();
+  await page
+    .getByRole("spinbutton", { name: "Preview start timestep" })
+    .fill("17");
+  await page
+    .getByRole("spinbutton", { name: "Preview end timestep" })
+    .fill("49");
+  const windowed = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/preview") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  const windowResponse = await windowed;
+  expect(windowResponse.ok()).toBe(true);
+  const window = await windowResponse.json();
+  expect(window.layerTimes).toEqual(
+    Array.from({ length: 33 }, (_, i) => i + 17),
+  );
+  expect(window.simulation.population).toEqual(frame.simulation.population);
+  await expect(page.getByLabel("Time scale", { exact: true })).toContainText(
+    "Every step · t 17–49",
+  );
+  const restored = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/preview") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Full horizon" }).click();
+  expect((await restored).ok()).toBe(true);
+  await expect(page.getByLabel("Time scale", { exact: true })).toContainText(
+    "Every step · t 0–2047",
+  );
+  await page.getByRole("button", { name: "Inspector view options" }).click();
+  expect(observations.get(page)!.mutations).toHaveLength(mutations);
 });
 
 test("a VM population continues while its only browser is closed, restores, pauses and steps exactly once", async ({

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { LAYER_HEIGHT, type VolumeBounds } from "./volumeData";
+import { LAYER_HEIGHT, referenceScale, type VolumeBounds } from "./volumeData";
 
 export type VolumeView = "iso" | "top" | "front";
 export type VolumeFitMode = "specimen" | "world";
@@ -7,6 +7,8 @@ export type VolumeFitMode = "specimen" | "world";
 interface CameraFitOptions {
   latticeSize: number;
   layers: number;
+  /** Last rendered layer height, including actual sampled timestep spacing. */
+  timeHeight?: number;
   width: number;
   height: number;
   annotations?: boolean;
@@ -19,6 +21,7 @@ interface CameraFitOptions {
 export function fitVolumeCamera({
   latticeSize,
   layers,
+  timeHeight = Math.max(1, layers - 1) * LAYER_HEIGHT,
   width,
   height,
   annotations = false,
@@ -30,6 +33,7 @@ export function fitVolumeCamera({
     return fitBoundsCamera({
       latticeSize,
       layers,
+      timeHeight,
       width,
       height,
       annotations,
@@ -38,7 +42,7 @@ export function fitVolumeCamera({
       occupiedBounds,
     });
   }
-  const timeHeight = Math.max(1, layers - 1) * LAYER_HEIGHT;
+  const annotationScale = referenceScale(latticeSize, timeHeight);
   const target = new THREE.Vector3(0, timeHeight * 0.45, 0);
   const reference = new THREE.OrthographicCamera();
   // Keep the low axonometric composition: time is vertical, both spatial axes legible.
@@ -57,8 +61,8 @@ export function fitVolumeCamera({
   // the reference stage's time axis or labels. Never crop to current occupancy:
   // a growing or evolving form should not cause the camera to jump around.
   const half = latticeSize / 2 + (annotations ? 1 : 2.65);
-  const bottom = annotations ? -1.5 : -0.98;
-  const top = timeHeight + (annotations ? 3.5 : 0.5);
+  const bottom = annotations ? -1.5 * annotationScale : -0.98;
+  const top = timeHeight + (annotations ? 3.5 * annotationScale : 0.5);
   const bounds = new THREE.Box3();
   for (const x of [-half, half])
     for (const y of [bottom, top])
@@ -69,7 +73,7 @@ export function fitVolumeCamera({
       }
   const span = bounds.getSize(new THREE.Vector3());
   const safeWidth = annotations
-    ? (span.x * (latticeSize + 12)) / (latticeSize + 2)
+    ? (span.x * (latticeSize + 12 * annotationScale)) / (latticeSize + 2)
     : span.x;
   const zoom = Math.min(
     (width * (annotations ? 0.88 : 0.92)) / safeWidth,
@@ -87,12 +91,14 @@ export function fitVolumeCamera({
     quaternion: reference.quaternion.clone(),
     target: target.add(shift),
     zoom,
+    far: Math.max(1000, distance * 8),
   };
 }
 
 function fitBoundsCamera({
   latticeSize,
   layers,
+  timeHeight = Math.max(1, layers - 1) * LAYER_HEIGHT,
   width,
   height,
   annotations = false,
@@ -101,7 +107,6 @@ function fitBoundsCamera({
   occupiedBounds,
 }: CameraFitOptions) {
   const half = Math.max(1, latticeSize) / 2;
-  const timeHeight = Math.max(0, layers - 1) * LAYER_HEIGHT;
   const specimen = fitMode === "specimen" && occupiedBounds;
   const envelope = specimen
     ? new THREE.Box3(
@@ -114,8 +119,9 @@ function fitBoundsCamera({
       );
   if (annotations) {
     // Match the stage's floor, frame and labels. The specimen stage is local to occupied extents.
-    envelope.min.add(new THREE.Vector3(-7.2, -0.8, -0.8));
-    envelope.max.add(new THREE.Vector3(6.5, 4, 6));
+    const scale = referenceScale(latticeSize, timeHeight, specimen || null);
+    envelope.min.add(new THREE.Vector3(-7.2, -0.8, -0.8).multiplyScalar(scale));
+    envelope.max.add(new THREE.Vector3(6.5, 4, 6).multiplyScalar(scale));
   }
   const target = envelope.getCenter(new THREE.Vector3());
   const span = envelope.getSize(new THREE.Vector3());
@@ -148,5 +154,6 @@ function fitBoundsCamera({
     quaternion: reference.quaternion.clone(),
     target,
     zoom,
+    far: Math.max(1000, distance * 8),
   };
 }

@@ -11,13 +11,8 @@ export const PALETTES: Record<VolumePalette, readonly string[]> = {
   ink: ["#7d9fae", "#b2c5c7", "#e0e5db", "#526e87"],
 };
 
-export function instanceColors(
-  data: PackedVolume,
-  palette: VolumePalette,
-  layerCount: number,
-): Float32Array {
-  const colors = new Float32Array(data.count * 3);
-  const swatches = Array.from({ length: MAX_STATE_COUNT - 1 }, (_, index) => {
+export function paletteColors(palette: VolumePalette): THREE.Color[] {
+  return Array.from({ length: MAX_STATE_COUNT - 1 }, (_, index) => {
     const hex = PALETTES[palette][index];
     if (hex) return new THREE.Color(hex);
     // Keep established state colors; extend with evenly distributed hues.
@@ -29,6 +24,15 @@ export function instanceColors(
       0.62,
     );
   });
+}
+
+export function instanceColors(
+  data: PackedVolume,
+  palette: VolumePalette,
+  layerCount: number,
+): Float32Array {
+  const colors = new Float32Array(data.count * 3);
+  const swatches = paletteColors(palette);
   const color = new THREE.Color();
   for (let index = 0; index < data.count; index++) {
     const x = data.positions[index * 3];

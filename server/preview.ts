@@ -1,6 +1,10 @@
 import { Worker } from "node:worker_threads";
 import type { Genome } from "../src/simulation";
-import type { PreviewFrame, RunConfig } from "../src/research/types";
+import type {
+  PreviewFrame,
+  PreviewRange,
+  RunConfig,
+} from "../src/research/types";
 import { HttpError } from "./validation";
 
 export const PREVIEW_TIMEOUT_MS = 120_000;
@@ -14,6 +18,7 @@ export class PreviewService {
     genome: Genome;
     config: RunConfig;
     seed: number;
+    range?: PreviewRange;
     resolve: (frame: PreviewFrame) => void;
     reject: (error: Error) => void;
   }[] = [];
@@ -28,6 +33,7 @@ export class PreviewService {
     genome: Genome,
     config: RunConfig,
     seed: number,
+    range?: PreviewRange,
   ): Promise<PreviewFrame> {
     if (this.closed)
       return Promise.reject(new HttpError(503, "Server is shutting down."));
@@ -38,6 +44,7 @@ export class PreviewService {
       config.steps,
       config.seed,
       seed,
+      range,
     ]);
     const cached = this.cache.get(key);
     if (cached) {
@@ -50,7 +57,7 @@ export class PreviewService {
         new HttpError(429, "Preview queue is full; retry shortly."),
       );
     return new Promise((resolve, reject) => {
-      this.queue.push({ key, genome, config, seed, resolve, reject });
+      this.queue.push({ key, genome, config, seed, range, resolve, reject });
       this.next();
     });
   }
@@ -101,6 +108,7 @@ export class PreviewService {
       genome: this.current.genome,
       config: this.current.config,
       seed: this.current.seed,
+      range: this.current.range,
     });
     this.timer = setTimeout(() => {
       void this.fail(

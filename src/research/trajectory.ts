@@ -21,7 +21,12 @@ export function streamTrajectory(
   genome: Genome,
   config: Pick<RunConfig, "size" | "steps" | "seed" | "stateCount">,
   seed: number,
-  onLayer?: (time: number, halo: Uint8Array, occupied: number) => void,
+  onLayer?: (
+    time: number,
+    halo: Uint8Array,
+    occupied: number,
+    bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
+  ) => void,
 ): Trajectory {
   const { size, steps, stateCount } = config;
   const area = size * size,
@@ -80,11 +85,12 @@ export function streamTrajectory(
     if (live > 0) lifetime++;
     // Locked gene 0 makes all remaining layers identically zero. Their counts
     // already occupy the zero-filled array, preserving denominators and variance.
-    onLayer?.(t, current, live);
+    onLayer?.(t, current, live, { minX, maxX, minZ, maxZ });
     if (t === steps - 1 || live === 0) {
-      // A preview still needs its sampled empty planes and exact final time.
+      // A preview still includes each empty plane through the final time.
       if (live === 0 && onLayer)
-        for (let rest = t + 1; rest < steps; rest++) onLayer(rest, current, 0);
+        for (let rest = t + 1; rest < steps; rest++)
+          onLayer(rest, current, 0, { minX, maxX, minZ, maxZ });
       break;
     }
     const fromX = Math.max(0, minX - 1),

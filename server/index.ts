@@ -18,6 +18,7 @@ import {
 } from "../src/research/types";
 import { RunManager, type ManagerOptions } from "./manager";
 import { PreviewService, PREVIEW_TIMEOUT_MS } from "./preview";
+import { validatePreviewRange } from "../src/research/sample";
 import {
   MAX_BODY_BYTES,
   MAX_COMMAND_BYTES,
@@ -449,7 +450,7 @@ export async function startResearchServer(options: ServerOptions = {}) {
       }
       if (path === "preview" && req.method === "POST") {
         const input = await body(req);
-        fields(input, ["genome", "seed"], ["genome", "seed"]);
+        fields(input, ["genome", "seed", "range"], ["genome", "seed"]);
         genome(input.genome, manager!.detail(id).config.stateCount);
         if (!Number.isSafeInteger(input.seed))
           throw new HttpError(400, "Preview seed must be a safe integer.");
@@ -459,6 +460,7 @@ export async function startResearchServer(options: ServerOptions = {}) {
             input.genome,
             manager!.detail(id).config,
             input.seed as number,
+            validatePreviewRange(input.range, manager!.detail(id).config.steps),
           ),
         );
       }

@@ -1,30 +1,23 @@
+import assert from "node:assert/strict";
 import { describe, expect, it } from "vitest";
 import { mutate, PRESETS, simulate } from "../simulation";
 import { DEFAULT_RUN_CONFIG } from "./config";
 import { evaluateGenome } from "./evaluate";
+import { expandPreviewLayer } from "./previewLayers";
 import { MAX_CA_STEPS, MAX_GRID_SIZE, maxHorizon } from "./limits";
-import {
-  MAX_PREVIEW_LAYER_BYTES,
-  MAX_PREVIEW_VOXELS,
-  sampleTrajectory,
-} from "./sample";
+import { MAX_PREVIEW_LAYER_BYTES, sampleTrajectory } from "./sample";
 
 function checkBounds(frame: ReturnType<typeof sampleTrajectory>) {
   expect(frame.layerTimes[0]).toBe(0);
   expect(frame.layerTimes.at(-1)).toBe(frame.totalSteps - 1);
-  expect(frame.simulation.layers.length).toBeLessThanOrEqual(128);
+  expect(frame.simulation.layers.length).toBe(frame.totalSteps);
+  expect(frame.stride).toBe(1);
   expect(
     frame.simulation.layers.reduce(
       (bytes, layer) => bytes + layer.byteLength,
       0,
     ),
   ).toBeLessThanOrEqual(MAX_PREVIEW_LAYER_BYTES);
-  expect(
-    frame.layerTimes.reduce(
-      (voxels, time) => voxels + frame.simulation.population[time],
-      0,
-    ),
-  ).toBeLessThanOrEqual(MAX_PREVIEW_VOXELS);
   for (let i = 1; i < frame.layerTimes.length - 1; i++)
     expect(frame.layerTimes[i] - frame.layerTimes[i - 1]).toBe(frame.stride);
 }
@@ -44,20 +37,26 @@ describe("bounded previews of full-depth scientific trajectories", () => {
         const { layers: sampled, ...metrics } = actual.simulation;
         expect(metrics).toEqual(summary);
         actual.layerTimes.forEach((time, index) =>
-          expect(sampled[index]).toEqual(layers[time]),
+          assert.deepEqual(
+            expandPreviewLayer(sampled[index], config.size),
+            layers[time],
+          ),
         );
         checkBounds(actual);
       }
   }, 15_000);
 
-  it("decimates dense trajectories without dropping cells from retained planes", () => {
+  it("keeps every dense plane without dropping any cell or timestep", () => {
     const genome = Array<number>(45).fill(1);
     genome[0] = 0;
-    const config = { ...DEFAULT_RUN_CONFIG, size: 49, steps: 2048 };
+    const config = { ...DEFAULT_RUN_CONFIG, size: 49, steps: 512 };
     const expected = simulate(genome, config);
     const actual = sampleTrajectory(genome, config, config.randomSeed);
     actual.layerTimes.forEach((time, index) =>
-      expect(actual.simulation.layers[index]).toEqual(expected.layers[time]),
+      assert.deepEqual(
+        expandPreviewLayer(actual.simulation.layers[index], config.size),
+        expected.layers[time],
+      ),
     );
     expect(actual.simulation.population).toEqual(expected.population);
     checkBounds(actual);
@@ -90,10 +89,9 @@ describe("bounded previews of full-depth scientific trajectories", () => {
     );
     frame.layerTimes.forEach((time, index) => {
       const plane = frame.simulation.layers[index];
-      expect(plane[(127 ** 2 - 1) / 2]).toBe(1 + (time % 4));
-      expect(
-        plane.reduce((count, value) => count + Number(value !== 0), 0),
-      ).toBe(1);
+      expect(plane).toEqual(
+        Uint32Array.of((((127 ** 2 - 1) / 2) << 4) | (1 + (time % 4))),
+      );
     });
     checkBounds(frame);
   });
@@ -109,9 +107,9 @@ describe("bounded previews of full-depth scientific trajectories", () => {
     };
     const frame = sampleTrajectory(genome, config, 1729);
     expect(frame.simulation.lifetime).toBe(config.steps);
-    expect(
-      frame.simulation.layers.every((plane) => plane.length === 1025 ** 2),
-    ).toBe(true);
+    expect(frame.simulation.layers.every((plane) => plane.length === 1)).toBe(
+      true,
+    );
     checkBounds(frame);
   });
 
@@ -133,15 +131,75 @@ describe("bounded previews of full-depth scientific trajectories", () => {
     checkBounds(frame);
   });
 
-  it("reports a complete-plane rendering limit instead of silently cropping a large dense field", () => {
+  it("reports an explicit range limit instead of silently skipping timesteps", () => {
     const genome = Array<number>(45).fill(1);
     genome[0] = 0;
     expect(() =>
       sampleTrajectory(
         genome,
-        { ...DEFAULT_RUN_CONFIG, size: 425, steps: 220 },
+        { ...DEFAULT_RUN_CONFIG, size: 425, steps: 512 },
         1729,
       ),
-    ).toThrow(/complete first\/last spatial layers/);
+    ).toThrow(/shorter preview range/);
   });
 });
+
+it("renders an explicit interior range exactly, including a single slice, with full-horizon metrics", () => {
+  const config = { ...DEFAULT_RUN_CONFIG, size: 17, steps: 259 };
+  const genome = PRESETS[1].genome;
+  const full = simulate(genome, config);
+  for (const range of [
+    { start: 127, end: 151 },
+    { start: 192, end: 192 },
+  ]) {
+    const frame = sampleTrajectory(genome, config, config.randomSeed, range);
+    expect(frame.layerTimes).toEqual(
+      Array.from(
+        { length: range.end - range.start + 1 },
+        (_, i) => range.start + i,
+      ),
+    );
+    frame.simulation.layers.forEach((layer, i) =>
+      expect(expandPreviewLayer(layer, config.size)).toEqual(
+        full.layers[range.start + i],
+      ),
+    );
+    expect(frame.simulation.population).toEqual(full.population);
+    expect(frame.simulation.lifetime).toBe(full.lifetime);
+    expect(frame.totalSteps).toBe(config.steps);
+    expect(frame.stride).toBe(1);
+  }
+});
+it.each([
+  { start: -1, end: 1 },
+  { start: 5, end: 4 },
+  { start: 0, end: 2048 },
+  { start: 0.5, end: 7 },
+])("rejects an invalid range %j", (range) => {
+  expect(() =>
+    sampleTrajectory(PRESETS[0].genome, DEFAULT_RUN_CONFIG, 1729, range),
+  ).toThrow(/Preview range/);
+});
+
+it("retains all 2,048 dense default-scale planes beyond the instance budget", () => {
+  const genome = Array(45).fill(1);
+  genome[0] = 0;
+  const config = { ...DEFAULT_RUN_CONFIG, seed: "point" as const };
+  const frame = sampleTrajectory(genome, config, 1729);
+  expect(frame.layerTimes).toEqual(
+    Array.from({ length: config.steps }, (_, t) => t),
+  );
+  expect(frame.simulation.population).toEqual(
+    Array.from(
+      { length: config.steps },
+      (_, t) => Math.min(config.size, 2 * t + 1) ** 2,
+    ),
+  );
+  expect(
+    frame.simulation.population.reduce((sum, n) => sum + n, 0),
+  ).toBeGreaterThan(2_000_000);
+  expect(frame.simulation.layers.at(-1)).toEqual(
+    new Uint8Array(config.size ** 2).fill(1),
+  );
+  checkBounds(frame);
+}, 15_000);

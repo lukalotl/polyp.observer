@@ -63,8 +63,10 @@ startup/recovery, and deployment boundaries.
   pausing training.
 - **Champion inspector**: specimen-bounds camera fit, best-ever/generation-best/
   selected candidate, isometric/top/front, volume/2D slice, fixture selection,
-  time scrubbing and a full-size focus view. Preview sampling is labeled and
-  never changes fitness evaluation.
+  time scrubbing and a full-size focus view. Every timestep is rendered as touching
+  unit cells: X/Z are space, Y is time. Time compression is off by default.
+  View options offer an explicit consecutive time range for larger volumes;
+  previews never change fitness evaluation.
 - **Compare**: retained history on a generation or evaluation-count axis.
   Different evaluation configurations are flagged as not directly comparable.
 - **Checkpoint / Fork / Export / Import**: preserve the complete population,
@@ -155,7 +157,7 @@ npm run test:e2e            # real browser + isolated research service
 
 The native suite exercises worker-count-independent replay, partial-generation
 rollback, browser-independent progress, crash/graceful restart, corrupt backups,
-CPU queue limits, bounded retention, proxy/lock isolation and sampled preview
+CPU queue limits, bounded retention, proxy/lock isolation and consecutive preview
 fidelity. E2E tests use isolated run directories and archive only their fixtures.
 
 ## Main modules

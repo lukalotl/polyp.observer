@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import Volume from "./components/Volume";
+import { layoutTimeLayers } from "./rendering/volumeData";
 import RunDialog from "./components/research/RunDialog";
 import PopulationView from "./components/research/PopulationView";
 import GeneticsView from "./components/research/GeneticsView";
@@ -35,6 +36,7 @@ import type {
   GenerationSnapshot,
   Individual,
   PreviewFrame,
+  PreviewRange,
   RunCheckpoint,
   RunConfig,
   RunStatus,
@@ -75,6 +77,9 @@ export default function App() {
   const [frame, setFrame] = useState<PreviewFrame | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const [previewRange, setPreviewRange] = useState<PreviewRange | undefined>();
+  const [rangeStart, setRangeStart] = useState("0");
+  const [rangeEnd, setRangeEnd] = useState("");
   const [fixtureSeed, setFixtureSeed] = useState<number | null>(null);
   const [visibleLayers, setVisibleLayers] = useState(1);
   const [playing, setPlaying] = useState(false);
@@ -86,6 +91,7 @@ export default function App() {
   );
   const [grain, setGrain] = useState(true);
   const [annotations, setAnnotations] = useState(false);
+  const [compressTime, setCompressTime] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [viewOptions, setViewOptions] = useState(false);
   const [resetKey, setResetKey] = useState(0);
@@ -132,6 +138,17 @@ export default function App() {
     [decoded, displayMode, layer],
   );
   const actualTime = decoded?.layerTimes[layer] ?? 0;
+  const timeScale = useMemo(
+    () =>
+      renderSimulation
+        ? layoutTimeLayers(
+            renderSimulation.layers.length,
+            renderSimulation.layerTimes,
+            compressTime,
+          ).scale
+        : 1,
+    [renderSimulation, compressTime],
+  );
   const isActive = run ? ACTIVE.includes(run.status) : false;
   const actionError = localError || lab.error;
 
@@ -143,11 +160,18 @@ export default function App() {
     setFixtureSeed(null);
     setFrame(null);
     setPreviewError("");
+    setPreviewRange(undefined);
+    setRangeStart("0");
+    setRangeEnd("");
     setPlaying(false);
   }, [lab.selectedId]);
 
   useEffect(() => {
     if (!lab.selectedId || !genome || !detail) return;
+    if (lab.connection === "reconnecting") {
+      setPreviewBusy(false);
+      return;
+    }
     const controller = new AbortController();
     setPreviewBusy(true);
     setPreviewError("");
@@ -156,7 +180,11 @@ export default function App() {
       `/api/runs/${encodeURIComponent(lab.selectedId)}/preview`,
       {
         method: "POST",
-        body: JSON.stringify({ genome, seed: previewSeed }),
+        body: JSON.stringify({
+          genome,
+          seed: previewSeed,
+          range: previewRange,
+        }),
         signal: controller.signal,
       },
     )
@@ -168,10 +196,12 @@ export default function App() {
         setResetKey((key) => key + 1);
       })
       .catch((caught) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          setFrame(null);
           setPreviewError(
             caught instanceof Error ? caught.message : "Preview failed.",
           );
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setPreviewBusy(false);
@@ -181,8 +211,10 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     lab.selectedId,
+    lab.connection,
     genomeKey,
     previewSeed,
+    previewRange,
     detail?.config.size,
     detail?.config.steps,
   ]);
@@ -494,7 +526,13 @@ export default function App() {
                       <span>
                         {value.generation >= 0
                           ? `g ${number(value.generation)}`
-                          : "not initialized"}
+                          : value.status === "queued"
+                            ? "Waiting for capacity"
+                            : value.status === "starting"
+                              ? "Initializing…"
+                              : value.status === "failed"
+                                ? "Initialization failed"
+                                : "Ready to initialize"}
                       </span>
                       <span>{fitnessNumber(value.bestFitness)}</span>
                     </div>
@@ -581,6 +619,16 @@ export default function App() {
             </div>
           ) : (
             <>
+              {run?.status === "queued" && (
+                <div className="queue-notice" role="status">
+                  Queued #{run.queuePosition}: waiting for{" "}
+                  {detail.config.evaluationWorkers} evaluators and a
+                  coordinator. {lab.capacity.allocatedWorkers} of{" "}
+                  {lab.capacity.maxEvaluationWorkers} evaluators are in use.
+                  Runs start in queue order when their full worker allocation is
+                  available.
+                </div>
+              )}
               {!focus && showMetrics && (
                 <section className="run-metrics" aria-label="Run metrics">
                   <div>
@@ -665,7 +713,7 @@ export default function App() {
                   {frame && frame.stride > 1 && (
                     <span
                       className="sample-badge"
-                      title="Preview is sampled. Fitness uses every CA timestep."
+                      title="This preview came from an older server that skipped timesteps. Refresh after the server update to load every step."
                     >
                       preview ×{frame.stride}
                     </span>
@@ -705,6 +753,7 @@ export default function App() {
                       grain={grain}
                       autoRotate={autoRotate}
                       annotations={annotations}
+                      compressTime={compressTime}
                       fitMode="specimen"
                       view={displayMode === "slice" ? "top" : view}
                       resetKey={resetKey}
@@ -727,10 +776,86 @@ export default function App() {
                   {previewError && (
                     <div className="preview-error" role="alert">
                       {previewError}
+                      <button onClick={() => setViewOptions(true)}>
+                        Choose time range
+                      </button>
                     </div>
+                  )}
+                  {renderSimulation && displayMode === "volume" && (
+                    <span
+                      className="time-scale-indicator"
+                      aria-label="Time scale"
+                      title={
+                        compressTime
+                          ? `Time axis compressed by ${(1 / timeScale).toFixed(2)}×. Timestamps stay accurate.`
+                          : "One CA timestep equals one spatial cell unit."
+                      }
+                    >
+                      {compressTime
+                        ? `Time compressed ×${(1 / timeScale).toFixed(1)}`
+                        : "Time 1:1"}
+                      {frame?.stride === 1 &&
+                        ` · Every step · t ${frame.layerTimes[0]}–${frame.layerTimes.at(-1)}`}
+                    </span>
                   )}
                   {viewOptions && (
                     <div className="view-options" aria-label="View options">
+                      <form
+                        className="preview-range"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          const start = Number(rangeStart),
+                            end = Number(rangeEnd || detail.config.steps - 1);
+                          if (start > end) {
+                            setPreviewError(
+                              "Preview start must be at or before its end.",
+                            );
+                            return;
+                          }
+                          setPreviewRange({ start, end });
+                        }}
+                      >
+                        <span>Preview time range · every step</span>
+                        <div>
+                          <input
+                            aria-label="Preview start timestep"
+                            type="number"
+                            min="0"
+                            max={detail.config.steps - 1}
+                            required
+                            value={rangeStart}
+                            onChange={(event) =>
+                              setRangeStart(event.target.value)
+                            }
+                          />
+                          <span>–</span>
+                          <input
+                            aria-label="Preview end timestep"
+                            type="number"
+                            min="0"
+                            max={detail.config.steps - 1}
+                            required
+                            value={rangeEnd || String(detail.config.steps - 1)}
+                            onChange={(event) =>
+                              setRangeEnd(event.target.value)
+                            }
+                          />
+                          <button type="submit" disabled={previewBusy}>
+                            Apply
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!previewRange}
+                          onClick={() => {
+                            setRangeStart("0");
+                            setRangeEnd("");
+                            setPreviewRange(undefined);
+                          }}
+                        >
+                          Full horizon
+                        </button>
+                      </form>
                       <label>
                         <span>Mode</span>
                         <select
@@ -787,6 +912,18 @@ export default function App() {
                           <option value="ember">Ember</option>
                           <option value="ink">Ink</option>
                         </select>
+                      </label>
+                      <label className="check-field">
+                        <input
+                          type="checkbox"
+                          checked={compressTime}
+                          disabled={displayMode === "slice"}
+                          onChange={(event) => {
+                            setCompressTime(event.target.checked);
+                            setResetKey((key) => key + 1);
+                          }}
+                        />
+                        Compress time
                       </label>
                       <label className="check-field">
                         <input
