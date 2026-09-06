@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, LockKeyhole, X } from "lucide-react";
+import { LockKeyhole, X } from "lucide-react";
 import type { Genome } from "../simulation";
 import { trapDialogTab } from "../dialogFocus";
 
@@ -25,42 +25,31 @@ export default function RuleEditor({
   return (
     <dialog
       ref={ref}
-      onKeyDown={trapDialogTab}
+      className="rule-dialog"
       aria-labelledby="rule-title"
-      className="about-dialog rule-dialog"
+      onKeyDown={trapDialogTab}
       onCancel={onClose}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="dialog-content">
-        <button
-          className="dialog-close"
-          aria-label="Close rule editor"
-          onClick={onClose}
-        >
-          <X size={19} />
+      <header className="dialog-header">
+        <h2 id="rule-title">Rule</h2>
+        <button aria-label="Close rule editor" onClick={onClose}>
+          <X size={16} />
         </button>
-        <div className="eyebrow">THE GENOTYPE / 45 POSSIBILITIES</div>
-        <h2 id="rule-title">
-          A rule for
-          <br />
-          <em>every encounter.</em>
-        </h2>
-        <p>
-          Each cell reads its own state and counts its occupied neighbors. This
-          table decides what it becomes.
-        </p>
-        <div className="rule-table-label">OCCUPIED NEIGHBORS →</div>
+      </header>
+      <div className="rule-content">
+        <div className="rule-table-label">Occupied neighbors</div>
         <div className="rule-table">
-          <span className="rule-table-corner">STATE ↓</span>
-          {Array.from({ length: 9 }, (_, i) => (
-            <span className="rule-table-heading" key={i}>
-              {i}
+          <span className="rule-table-corner">State</span>
+          {Array.from({ length: 9 }, (_, n) => (
+            <span key={n} className="rule-table-heading">
+              {n}
             </span>
           ))}
           {Array.from({ length: 5 }, (_, state) => (
-            <div className="rule-table-row" key={state}>
+            <div key={state} className="rule-table-row">
               <span className="rule-table-heading">{state}</span>
               {Array.from({ length: 9 }, (_, neighbors) => {
                 const index = state * 9 + neighbors;
@@ -69,12 +58,8 @@ export default function RuleEditor({
                     key={index}
                     className={`rule-cell gene-${draft[index]}`}
                     disabled={index === 0}
+                    title={index === 0 ? "Quiescent state" : "Cycle output"}
                     aria-label={`State ${state}, ${neighbors} neighbors: next state ${draft[index]}`}
-                    title={
-                      index === 0
-                        ? "Empty space stays empty."
-                        : "Click to cycle the output state."
-                    }
                     onClick={() =>
                       setDraft((values) =>
                         values.map((value, i) =>
@@ -83,27 +68,26 @@ export default function RuleEditor({
                       )
                     }
                   >
-                    {index === 0 ? <LockKeyhole size={12} /> : draft[index]}
+                    {index === 0 ? <LockKeyhole size={11} /> : draft[index]}
                   </button>
                 );
               })}
             </div>
           ))}
         </div>
-        <p className="rule-table-hint">
-          Click an output to cycle 0 → 1 → 2 → 3 → 4. The empty-neighborhood
-          rule is locked at 0.
-        </p>
-        <button
-          className="primary-button"
-          onClick={() => {
-            onApply(draft);
-            onClose();
-          }}
-        >
-          <span>Grow this rule</span>
-          <ArrowRight size={16} />
-        </button>
+        <code className="rule-help">next = rule[state × 9 + occupied]</code>
+        <div className="dialog-actions">
+          <button onClick={onClose}>Cancel</button>
+          <button
+            className="apply-button"
+            onClick={() => {
+              onApply(draft);
+              onClose();
+            }}
+          >
+            Apply
+          </button>
+        </div>
       </div>
     </dialog>
   );

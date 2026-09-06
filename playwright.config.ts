@@ -33,8 +33,9 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: "npm run dev -- --port 5173 --strictPort",
-    url: baseURL,
+    command: "npm run dev",
+    // A rendered HTML shell is not readiness: this must proxy to the real VM API.
+    url: `${baseURL.replace(/\/$/, "")}/api/health`,
     reuseExistingServer: true,
     timeout: 30_000,
   },

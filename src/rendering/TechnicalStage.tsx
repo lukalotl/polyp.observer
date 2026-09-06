@@ -76,13 +76,15 @@ function StageLabel({
   );
 }
 
-/** A quiet scientific plinth: XY on the floor, time climbing at the left. */
+/** A quiet floor, with an optional scientific reference frame and time axis. */
 export default function TechnicalStage({
   size,
   layers,
+  annotations = false,
 }: {
   size: number;
   layers: number;
+  annotations?: boolean;
 }) {
   const half = size / 2 + 1.4;
   const floor = -0.53;
@@ -95,6 +97,7 @@ export default function TechnicalStage({
     const axis: number[] = [];
     const frame: number[] = [];
     const ticks: { layer: number; position: Point3 }[] = [];
+    if (!annotations) return { grid, corners, axis, frame, ticks };
     const line = (target: number[], a: Point3, b: Point3) =>
       target.push(...a, ...b);
     for (let i = -Math.floor(half / 5) * 5; i <= half; i += 5) {
@@ -132,7 +135,7 @@ export default function TechnicalStage({
     line(axis, [-half, floor, half + 2], [half, floor, half + 2]);
     line(axis, [half + 2, floor, -half], [half + 2, floor, half]);
     return { grid, corners, axis, frame, ticks };
-  }, [axisX, axisZ, floor, half, height, layers]);
+  }, [annotations, axisX, axisZ, floor, half, height, layers]);
 
   const shadow = useMemo(() => {
     const canvas = document.createElement("canvas");
@@ -165,33 +168,37 @@ export default function TechnicalStage({
           toneMapped={false}
         />
       </mesh>
-      <Segments points={grid} color="#64816d" opacity={0.16} />
-      <Segments points={frame} color="#73947d" opacity={0.105} />
-      <Segments points={corners} color="#91ae96" opacity={0.44} />
-      <Segments points={axis} color="#7d9a84" opacity={0.32} />
-      {ticks.map((tick) => (
-        <StageLabel
-          key={tick.layer}
-          text={String(tick.layer).padStart(2, "0")}
-          position={tick.position}
-        />
-      ))}
-      <StageLabel
-        text="t"
-        position={[axisX, height + 2.5, axisZ]}
-        scale={1.8}
-        opacity={0.85}
-      />
-      <StageLabel
-        text="X"
-        position={[half + 2, floor, half + 2.7]}
-        scale={1.4}
-      />
-      <StageLabel
-        text="Y"
-        position={[half + 3, floor, -half - 1]}
-        scale={1.4}
-      />
+      {annotations && (
+        <>
+          <Segments points={grid} color="#64816d" opacity={0.16} />
+          <Segments points={frame} color="#73947d" opacity={0.105} />
+          <Segments points={corners} color="#91ae96" opacity={0.44} />
+          <Segments points={axis} color="#7d9a84" opacity={0.32} />
+          {ticks.map((tick) => (
+            <StageLabel
+              key={tick.layer}
+              text={String(tick.layer).padStart(2, "0")}
+              position={tick.position}
+            />
+          ))}
+          <StageLabel
+            text="t"
+            position={[axisX, height + 2.5, axisZ]}
+            scale={1.8}
+            opacity={0.85}
+          />
+          <StageLabel
+            text="X"
+            position={[half + 2, floor, half + 2.7]}
+            scale={1.4}
+          />
+          <StageLabel
+            text="Y"
+            position={[half + 3, floor, -half - 1]}
+            scale={1.4}
+          />
+        </>
+      )}
     </group>
   );
 }

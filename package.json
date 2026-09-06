@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "start": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0",
+    "dev": "node scripts/dev.mjs",
+    "start": "node .server/index.js",
+    "build": "tsc -b && tsc -p tsconfig.server.json && vite build && npm run build:server",
+    "preview": "node .server/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "dev:client": "vite --host 0.0.0.0 --port 5173 --strictPort",
+    "dev:server": "npm run build:server && PORT=8787 node .server/index.js",
+    "build:server": "node scripts/build-server.mjs",
+    "test:server": "node scripts/test-server.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
@@ -18,19 +22,26 @@
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.171.0"
+    "three": "^0.171.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
+    "@types/node": "^26.4.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/three": "^0.171.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.28.2",
     "jsdom": "^26.0.0",
     "typescript": "~5.7.3",
     "vite": "^6.1.0",
     "vitest": "^3.0.5"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   }
 }

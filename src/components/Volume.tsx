@@ -11,6 +11,7 @@ import { OrbitControls } from "@react-three/drei";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import TechnicalStage from "../rendering/TechnicalStage";
+import { fitVolumeCamera } from "../rendering/cameraFit";
 import {
   instanceColors,
   makePointMaterial,
@@ -18,7 +19,6 @@ import {
   VolumePalette,
 } from "../rendering/materials";
 import {
-  LAYER_HEIGHT,
   packVolume,
   PackedVolume,
   visibleCount,
@@ -33,6 +33,7 @@ export interface VolumeProps {
   grain: boolean;
   autoRotate: boolean;
   resetKey: number;
+  annotations?: boolean;
   onLayerSelect?: (layer: number) => void;
 }
 
@@ -56,11 +57,13 @@ function CameraRig({
   layers,
   autoRotate,
   resetKey,
+  annotations,
 }: {
   latticeSize: number;
   layers: number;
   autoRotate: boolean;
   resetKey: number;
+  annotations: boolean;
 }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera, size, invalidate } = useThree();
@@ -79,36 +82,13 @@ function CameraRig({
       size.height < 1
     )
       return;
-    const height = Math.max(1, layers - 1) * LAYER_HEIGHT;
-    const target = new THREE.Vector3(0, height * 0.45, 0);
-    // A low, composed axonometric view: time is vertical, both spatial axes remain legible.
-    const reference = camera.clone();
-    reference.position.set(
-      latticeSize * 1.5,
-      latticeSize * 0.7 + target.y,
-      latticeSize * 1.8,
-    );
-    reference.lookAt(target);
-    reference.updateMatrixWorld();
-    const half = latticeSize / 2 + 1;
-    const bounds = new THREE.Box3();
-    for (const x of [-half, half])
-      for (const y of [-1.5, height + 3.5])
-        for (const z of [-half, half]) {
-          bounds.expandByPoint(
-            new THREE.Vector3(x, y, z).applyMatrix4(
-              reference.matrixWorldInverse,
-            ),
-          );
-        }
-    const span = bounds.getSize(new THREE.Vector3());
-    // Tight vertical framing lets the specimen, not empty lattice corners, be the hero.
-    // Keep the wider horizontal safety margin for the time axis on narrow screens.
-    const safeWidth = (span.x * (latticeSize + 12)) / (latticeSize + 2);
-    const fit = Math.min(
-      (size.width * 0.88) / safeWidth,
-      (size.height * 0.92) / span.y,
-    );
+    const fit = fitVolumeCamera({
+      latticeSize,
+      layers,
+      width: size.width,
+      height: size.height,
+      annotations,
+    });
     const previous = previousFit.current;
     if (
       !previous ||
@@ -116,28 +96,23 @@ function CameraRig({
       previous.latticeSize !== latticeSize ||
       previous.layers !== layers
     ) {
-      const center = bounds.getCenter(new THREE.Vector3());
-      const shift = new THREE.Vector3(
-        center.x,
-        center.y + (size.height * 0.02) / fit,
-        0,
-      ).applyQuaternion(reference.quaternion);
-      camera.position.copy(reference.position).add(shift);
-      camera.quaternion.copy(reference.quaternion);
-      camera.zoom = fit;
-      orbit.target.copy(target).add(shift);
+      camera.position.copy(fit.position);
+      camera.quaternion.copy(fit.quaternion);
+      camera.zoom = fit.zoom;
+      orbit.target.copy(fit.target);
       orbit.update();
       orbit.saveState();
     } else {
-      // Keep the user's orbit/pan and relative zoom through container resizes.
-      camera.zoom *= fit / previous.zoom;
+      // Keep the user's orbit/pan and relative zoom through resizes and annotation toggles.
+      camera.zoom *= fit.zoom / previous.zoom;
     }
-    previousFit.current = { zoom: fit, resetKey, latticeSize, layers };
-    orbit.minZoom = fit * 0.48;
-    orbit.maxZoom = fit * 5;
+    previousFit.current = { zoom: fit.zoom, resetKey, latticeSize, layers };
+    orbit.minZoom = fit.zoom * 0.48;
+    orbit.maxZoom = fit.zoom * 5;
     camera.updateProjectionMatrix();
     invalidate();
   }, [
+    annotations,
     camera,
     invalidate,
     latticeSize,
@@ -302,6 +277,7 @@ function Scene({
   grain,
   autoRotate,
   resetKey,
+  annotations = false,
   onLayerSelect,
 }: VolumeProps) {
   const data = useMemo(() => packVolume(simulation), [simulation]);
@@ -329,6 +305,7 @@ function Scene({
       <TechnicalStage
         size={simulation.size}
         layers={simulation.layers.length}
+        annotations={annotations}
       />
       {mode === "voxels" ? (
         <VoxelObject {...props} />
@@ -340,13 +317,14 @@ function Scene({
         layers={simulation.layers.length}
         autoRotate={autoRotate}
         resetKey={resetKey}
+        annotations={annotations}
       />
     </>
   );
 }
 
 function RendererFallback({
-  message = "This browser could not start the 3D view.",
+  message = "WebGL could not start. Enable it or reload.",
 }: {
   message?: string;
 }) {
@@ -365,11 +343,8 @@ function RendererFallback({
         lineHeight: 1.7,
       }}
     >
-      <strong>THE VIEWPORT IS UNAVAILABLE</strong>
+      <strong>3D view unavailable</strong>
       <span>{message}</span>
-      <span style={{ opacity: 0.65 }}>
-        Your experiment is safe. Enable WebGL or reload to try again.
-      </span>
     </div>
   );
 }
@@ -406,7 +381,7 @@ export default function Volume(props: VolumeProps) {
   return (
     <RendererBoundary resetKey={props.resetKey}>
       {contextLost ? (
-        <RendererFallback message="The graphics context was interrupted." />
+        <RendererFallback message="WebGL context lost. Reload to retry." />
       ) : (
         <Canvas
           orthographic
