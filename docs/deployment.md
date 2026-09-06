@@ -1,7 +1,8 @@
 # polyp.observer deployment
 
-Vercel serves the browser build at **https://polyp.observer**. The existing
-`www.polyp.observer` domain redirects there. Research uses a persistent Linux
+Vercel serves the browser build at **https://popyl-observer.vercel.app** (the
+existing alias uses this spelling). A custom domain is pending; `polyp.observer`
+is not registered. Research uses a persistent Linux
 service in the Polyp workspace; it cannot run as a static Vercel deployment.
 
 `vercel.json` sends `/api/*` to the production service at
@@ -23,7 +24,7 @@ the production datastore.
 After `npm ci && npm run build` in the production checkout:
 
 ```sh
-PUBLIC_ORIGIN=https://polyp.observer \
+PUBLIC_ORIGIN=https://popyl-observer.vercel.app \
 PUBLIC_ORIGINS=https://polyp-observer-git-deploy-vercel-lukalots-projects.vercel.app \
 POLYP_RUNS_DIR=.polyp/production \
 POLYP_MAX_ACTIVE_RUNS=1 POLYP_MAX_EVALUATION_WORKERS=2 POLYP_CPU_BUDGET=3 \
@@ -41,8 +42,9 @@ second process against the same data directory.
 
 ## Release
 
-Build and test the deployment branch, push it to GitHub, and deploy that commit
-to Vercel. The Vercel project is `polyp-observer` under `lukalots-projects`.
+Build and test `main`, update the production checkout/backend to that commit,
+then push to GitHub. Vercel deploys `main` automatically. The Vercel project is
+`polyp-observer` under `lukalots-projects`.
 Keep the backend origin, Vercel API rewrite and WebSocket environment variable
 in sync if the VM changes. Restart the backend gracefully when updating its
 version, then verify health, live subscriptions and a disposable run before

@@ -6,9 +6,9 @@ export type VolumePalette = "mineral" | "ember" | "ink";
 
 /** Explicit state colors, not a height rainbow. */
 export const PALETTES: Record<VolumePalette, readonly string[]> = {
-  mineral: ["#9fbea6", "#c6d3b5", "#eee8cb", "#5d8f7b"],
-  ember: ["#c98361", "#dda77b", "#efcf9d", "#8e5646"],
-  ink: ["#7d9fae", "#b2c5c7", "#e0e5db", "#526e87"],
+  mineral: ["#df6c7c", "#e5c995", "#90a98e", "#8da5a1"],
+  ember: ["#e5c995", "#df6c7c", "#8da5a1", "#90a98e"],
+  ink: ["#8da5a1", "#2761ba", "#e5c995", "#526571"],
 };
 
 export function paletteColors(palette: VolumePalette): THREE.Color[] {

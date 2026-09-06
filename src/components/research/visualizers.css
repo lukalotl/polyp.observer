@@ -1,16 +1,16 @@
 .rv-panel {
-  --rv-state0: #24332a;
-  --rv-state1: #677d5a;
-  --rv-state2: #b6c68f;
-  --rv-state3: #bd967b;
-  --rv-state4: #7f9eab;
+  --rv-state0: #0a121a;
+  --rv-state1: #757f83;
+  --rv-state2: #c1c7cc;
+  --rv-state3: #df6c7c;
+  --rv-state4: #8da5a1;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   height: 100%;
-  color: var(--text, #c1cec3);
-  background: var(--surface, #162019);
+  color: var(--text, #c1c7cc);
+  background: var(--surface, #090f16);
   font: 11px/1.5 var(--mono, ui-monospace, monospace);
 }
 
@@ -20,27 +20,27 @@
 .rv-panel button,
 .rv-panel select {
   font: inherit;
-  color: var(--text, #c1cec3);
-  background: var(--field, #101914);
-  border: 1px solid var(--line, #2a382e);
+  color: var(--text, #c1c7cc);
+  background: var(--field, #090f16);
+  border: 1px solid var(--line, #1c2733);
   border-radius: 3px;
   padding: 3px 7px;
   cursor: pointer;
 }
 .rv-panel button:hover:not(:disabled),
 .rv-panel select:hover {
-  border-color: var(--muted, #798b7e);
+  border-color: var(--muted, #8da5a1);
 }
 .rv-panel button:disabled {
   opacity: 0.4;
   cursor: default;
 }
 .rv-panel :focus-visible {
-  outline: 1px solid var(--accent, #afc399);
+  outline: 1px solid var(--accent, #c1c7cc);
   outline-offset: 2px;
 }
 .rv-panel input[type="checkbox"] {
-  accent-color: var(--accent, #afc399);
+  accent-color: var(--accent, #c1c7cc);
   width: 12px;
   height: 12px;
   margin: 0;
@@ -56,7 +56,7 @@
 }
 .rv-muted,
 .rv-note {
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
 }
 .rv-empty {
   display: grid;
@@ -64,7 +64,7 @@
   min-height: 140px;
   height: 100%;
   padding: 24px;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
   font: 12px/1.6 var(--mono, ui-monospace, monospace);
   text-align: center;
 }
@@ -88,39 +88,39 @@
 }
 .rv-population-table th {
   font-weight: 400;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
   padding: 6px 8px;
   font-size: 10px;
   white-space: nowrap;
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--surface, #162019);
-  border-bottom: 1px solid var(--line, #2a382e);
+  background: var(--surface, #090f16);
+  border-bottom: 1px solid var(--line, #1c2733);
 }
 .rv-population-table td {
   height: 30px;
   padding: 4px 8px;
   white-space: nowrap;
   border-bottom: 1px solid
-    color-mix(in srgb, var(--line, #2a382e) 48%, transparent);
+    color-mix(in srgb, var(--line, #1c2733) 48%, transparent);
 }
 .rv-population-table tr[aria-selected] {
   cursor: pointer;
 }
 .rv-population-table tbody tr:hover {
-  background: var(--field, #101914);
+  background: var(--field, #090f16);
 }
 .rv-population-table tr[aria-selected="true"] {
   background: color-mix(
     in srgb,
-    var(--accent, #afc399) 9%,
-    var(--field, #101914)
+    var(--accent, #c1c7cc) 9%,
+    var(--field, #090f16)
   );
 }
 .rv-population-table tr[aria-selected="true"] td:first-child {
-  box-shadow: inset 2px 0 var(--accent, #afc399);
-  color: var(--accent, #afc399);
+  box-shadow: inset 2px 0 var(--accent, #c1c7cc);
+  color: var(--accent, #c1c7cc);
 }
 .rv-id {
   max-width: 160px;
@@ -141,7 +141,7 @@
   margin-top: 3px;
 }
 .rv-state-header span {
-  border-top: 1px solid var(--line, #2a382e);
+  border-top: 1px solid var(--line, #1c2733);
 }
 .rv-gene-strip {
   display: grid;
@@ -158,47 +158,47 @@
   text-align: center;
   font-size: 9px;
   line-height: 15px;
-  color: #111a14;
+  color: #090f16;
   border: 1px solid transparent;
 }
 .rv-state-0 {
-  background: var(--rv-state0, #24332a);
-  color: var(--muted, #798b7e);
+  background: var(--rv-state0, #0a121a);
+  color: var(--muted, #8da5a1);
 }
 .rv-state-1 {
-  background: var(--rv-state1, #677d5a);
+  background: var(--rv-state1, #757f83);
 }
 .rv-state-2 {
-  background: var(--rv-state2, #b6c68f);
+  background: var(--rv-state2, #c1c7cc);
 }
 .rv-state-3 {
-  background: var(--rv-state3, #bd967b);
+  background: var(--rv-state3, #df6c7c);
 }
 .rv-state-4 {
-  background: var(--rv-state4, #7f9eab);
+  background: var(--rv-state4, #8da5a1);
 }
 .rv-gene-group {
   margin-left: 2px;
 }
 .rv-quiescent {
-  border-color: var(--muted, #798b7e);
+  border-color: var(--muted, #8da5a1);
   background-image: repeating-linear-gradient(
     135deg,
     transparent 0,
     transparent 3px,
-    #7b8e7250 3px,
-    #7b8e7250 4px
+    #8da5a150 3px,
+    #8da5a150 4px
   );
 }
 .rv-mutated {
-  border-bottom: 2px solid #e4cf9b;
+  border-bottom: 2px solid #e5c995;
 }
 .rv-legend {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
   padding: 9px 12px;
   font-size: 10px;
   flex: none;
@@ -231,19 +231,19 @@
   flex-wrap: wrap;
   gap: 6px 20px;
   font-size: 10px;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
   padding: 3px 0 10px;
 }
 .rv-statline b {
   font-weight: 400;
-  color: var(--text, #c1cec3);
+  color: var(--text, #c1c7cc);
 }
 .rv-section-label {
   font: 10px var(--mono, ui-monospace, monospace);
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
   margin: 14px 0 10px;
 }
 .rv-ancestry {
@@ -260,7 +260,7 @@
 }
 .rv-row-label {
   font-size: 10px;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
 }
 .rv-parent {
   margin-bottom: 12px;
@@ -278,22 +278,22 @@
   border: 1px solid currentColor;
 }
 .rv-source-0 {
-  color: #94b1bf;
+  color: #c1c7cc;
 }
 .rv-source-1 {
-  color: #c9af8d;
+  color: #e5c995;
 }
 .rv-source-cell {
   text-align: center;
   font-size: 9px;
-  background: var(--field, #101914);
+  background: var(--field, #090f16);
   line-height: 16px;
 }
 .rv-ancestry-link {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
   font-size: 10px;
   margin: 8px 0;
 }
@@ -302,7 +302,7 @@
 }
 .rv-ancestry-note {
   padding: 6px 0;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
 }
 .rv-genetics .rv-legend {
   padding: 6px 0;
@@ -321,7 +321,7 @@
 }
 .rv-rule-matrix th {
   font-weight: 400;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
 }
 .rv-rule-matrix th:first-child {
   text-align: left;
@@ -349,7 +349,7 @@
 .rv-frequency-cell {
   height: 16px;
   min-width: 0;
-  border: 1px solid var(--muted, #798b7e);
+  border: 1px solid var(--muted, #8da5a1);
 }
 .rv-frequencies {
   width: max(100%, calc(var(--gene-count, 45) * 8px + 100px));
@@ -372,7 +372,7 @@
   gap: 6px;
   align-items: center;
   margin-left: auto;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
   white-space: nowrap;
 }
 .rv-snapshot-controls select {
@@ -394,24 +394,24 @@
   cursor: crosshair;
 }
 .rv-chart-grid {
-  stroke: var(--line, #2a382e);
+  stroke: var(--line, #1c2733);
   stroke-width: 0.6;
 }
 .rv-axis-text,
 .rv-axis-title {
-  fill: var(--muted, #798b7e);
+  fill: var(--muted, #8da5a1);
   font: 10px var(--mono, ui-monospace, monospace);
 }
 .rv-axis-title {
   font-size: 9px;
 }
 .rv-selection-line {
-  stroke: var(--accent, #afc399);
+  stroke: var(--accent, #c1c7cc);
   stroke-width: 1;
   stroke-dasharray: 4 3;
 }
 .rv-hover-line {
-  stroke: var(--muted, #798b7e);
+  stroke: var(--muted, #8da5a1);
   stroke-width: 0.8;
   opacity: 0.65;
 }
@@ -432,11 +432,11 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--muted, #798b7e);
+  color: var(--muted, #8da5a1);
 }
 .rv-chart-readout b {
   font-weight: 400;
-  color: var(--text, #c1cec3);
+  color: var(--text, #c1c7cc);
 }
 .rv-chart-readout i {
   width: 6px;

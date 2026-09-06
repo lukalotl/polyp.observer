@@ -227,6 +227,38 @@ async function screenArtifact(page: Page, testInfo: TestInfo, name: string) {
   await testInfo.attach(name, { path, contentType: "image/png" });
 }
 
+test("reference-size windows keep real runs and population rows reachable", async ({
+  page,
+  request,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1080, height: 675 });
+  const run = await createRun(page, testInfo);
+  await page
+    .getByRole("button", { name: "Move registry window", exact: true })
+    .click();
+  expect(
+    (await page.locator(".run-list").boundingBox())!.height,
+  ).toBeGreaterThanOrEqual(90);
+  const select = page.getByRole("button", {
+    name: `Select run ${run.config.name}`,
+    exact: true,
+  });
+  await select.click();
+  await expect(select).toBeInViewport();
+  await step(page, request, run.summary.id);
+  await page
+    .getByRole("button", { name: "Move population window", exact: true })
+    .click();
+  const row = page
+    .getByRole("table", { name: "Population ranked by training fitness" })
+    .getByRole("row")
+    .nth(1);
+  await row.click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
+  await expect(row).toBeInViewport();
+  await screenArtifact(page, testInfo, "reference-size-desktop");
+});
+
 test("boundary settings disqualify spatial contact in the real evaluator and show the reason", async ({
   page,
   request,
@@ -435,7 +467,9 @@ test("a VM population continues while its only browser is closed, restores, paus
       async () => (await detail(request, run.summary.id)).summary.generation,
     )
     .toBeGreaterThanOrEqual(1);
-  await expect(page.locator("canvas")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Champion inspector" }).locator("canvas"),
+  ).toBeVisible();
   const beforeClosing = await detail(request, run.summary.id);
   const mutationCount = observations.get(page)!.mutations.length;
   await page.close();
@@ -482,8 +516,18 @@ test("a VM population continues while its only browser is closed, restores, paus
       .getByRole("table", { name: "Population ranked by training fitness" })
       .getByRole("row"),
   ).toHaveCount(9);
-  await expect(returned.locator("canvas")).toBeVisible();
-  const viewport = (await returned.locator("canvas").boundingBox())!;
+  await expect(
+    returned
+      .getByRole("region", { name: "Champion inspector" })
+      .locator("canvas"),
+  ).toBeVisible();
+  await returned
+    .getByRole("button", { name: "Maximize spacetime window", exact: true })
+    .click();
+  const viewport = (await returned
+    .getByRole("region", { name: "Champion inspector" })
+    .locator("canvas")
+    .boundingBox())!;
   expect(viewport.width).toBeGreaterThan(900);
   expect(viewport.height).toBeGreaterThan(350);
   await screenArtifact(returned, testInfo, "restored-persistent-population");
@@ -524,6 +568,9 @@ test("downloaded checkpoints and UI forks retain exact population, RNG and deter
   expect(forkState.population).toEqual(exported.checkpoint.state!.population);
   expect(forkState.rngState).toBe(exported.checkpoint.state!.rngState);
   const forkNext = await step(page, request, fork.summary.id);
+  await page
+    .getByRole("button", { name: "Move registry window", exact: true })
+    .click();
   const chooser = page.waitForEvent("filechooser");
   await page
     .getByRole("button", { name: "Import checkpoint", exact: true })
@@ -646,7 +693,9 @@ test("finite run exposes real ancestry, retained generations, CA closeups and im
     page.getByRole("combobox", { name: "Retained generation" }),
   ).toHaveValue("latest");
   await screenArtifact(page, testInfo, "fitness-history");
-  await expect(page.locator("canvas")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Champion inspector" }).locator("canvas"),
+  ).toBeVisible();
   await expect(page.getByRole("slider", { name: "CA timestep" })).toBeEnabled();
   const mutations = observations.get(page)!.mutations.length;
   await page.getByRole("button", { name: "Inspector view options" }).click();
@@ -695,16 +744,29 @@ test("mobile controls create and inspect a real run without a clipped configurat
   await page.setViewportSize({ width: 390, height: 844 });
   const run = await createRun(page, testInfo, false, { maxGenerations: 2 });
   await step(page, request, run.summary.id);
-  await expect(page.locator("canvas")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Champion inspector" }).locator("canvas"),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Focus champion" }).click();
   await expect(
     page.getByRole("button", { name: "Exit focus view" }),
   ).toBeVisible();
   // R3F resizes on the next ResizeObserver frame after focus expands the pane.
   await expect
-    .poll(async () => (await page.locator("canvas").boundingBox())?.height ?? 0)
+    .poll(
+      async () =>
+        (
+          await page
+            .getByRole("region", { name: "Champion inspector" })
+            .locator("canvas")
+            .boundingBox()
+        )?.height ?? 0,
+    )
     .toBeGreaterThan(600);
-  const canvas = (await page.locator("canvas").boundingBox())!;
+  const canvas = (await page
+    .getByRole("region", { name: "Champion inspector" })
+    .locator("canvas")
+    .boundingBox())!;
   expect(canvas.width).toBeGreaterThan(300);
   expect(canvas.height).toBeGreaterThan(600);
   expect(canvas.x).toBeGreaterThanOrEqual(0);

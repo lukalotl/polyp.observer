@@ -16,6 +16,7 @@ import {
 import type { RunConfig } from "../../research/types";
 import { trapDialogTab } from "../../dialogFocus";
 import RuleEditor from "../RuleEditor";
+import { useDialogDrag } from "../desktop/useDialogDrag";
 
 interface Props {
   initial: RunConfig;
@@ -49,6 +50,7 @@ export default function RunDialog({
   onCreate,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const drag = useDialogDrag(dialog);
   const [draft, setDraft] = useState<RunConfig>(() => structuredClone(initial));
   const [trainText, setTrainText] = useState(initial.trainingSeeds.join(", "));
   const [validationText, setValidationText] = useState(
@@ -137,6 +139,7 @@ export default function RunDialog({
   return (
     <dialog
       ref={dialog}
+      style={drag.style}
       className="run-dialog"
       aria-labelledby="run-dialog-title"
       onKeyDown={trapDialogTab}
@@ -146,7 +149,17 @@ export default function RunDialog({
       }}
     >
       <header className="dialog-header">
-        <h2 id="run-dialog-title">{title}</h2>
+        <h2 id="run-dialog-title" {...drag.handle}>
+          {title}
+        </h2>
+        <button
+          className="dialog-drag-handle"
+          aria-label="Move run configuration window"
+          title="Drag to move · arrow keys to move"
+          {...drag.handle}
+        >
+          ⠿
+        </button>
         <div className="button-row">
           <button
             onClick={switchEditor}

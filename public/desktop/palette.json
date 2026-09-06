@@ -1,0 +1,72 @@
+{
+  "source": "User supplied desktop reference, image.png",
+  "size": [
+    1080,
+    675
+  ],
+  "colors": {
+    "background": {
+      "hex": "#090f16",
+      "sample": [
+        244,
+        3
+      ]
+    },
+    "surface": {
+      "hex": "#0a121a",
+      "sample": [
+        151,
+        3
+      ]
+    },
+    "clock": {
+      "hex": "#8da5a1",
+      "sample": [
+        726,
+        104
+      ]
+    },
+    "coral": {
+      "hex": "#df6c7c",
+      "sample": [
+        1020,
+        393
+      ]
+    },
+    "gold": {
+      "hex": "#e5c995",
+      "sample": [
+        830,
+        432
+      ]
+    },
+    "sage": {
+      "hex": "#90a98e",
+      "sample": [
+        183,
+        200
+      ]
+    },
+    "sky": {
+      "hex": "#2761ba",
+      "sample": [
+        751,
+        37
+      ]
+    },
+    "border": {
+      "hex": "#526571",
+      "sample": [
+        971,
+        614
+      ]
+    },
+    "muted": {
+      "hex": "#757f83",
+      "sample": [
+        894,
+        399
+      ]
+    }
+  }
+}

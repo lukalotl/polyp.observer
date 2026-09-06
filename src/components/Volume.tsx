@@ -372,9 +372,9 @@ function Scene({
   const layout = (dense ?? data)!;
   return (
     <>
-      <color attach="background" args={["#101a17"]} />
-      <ambientLight intensity={0.48} color="#b8c7b0" />
-      <hemisphereLight args={["#d8e6ce", "#263d30", 1.25]} />
+      <color attach="background" args={["#090f16"]} />
+      <ambientLight intensity={0.48} color="#8da5a1" />
+      <hemisphereLight args={["#c1c7cc", "#0a121a", 1.25]} />
       <directionalLight
         position={[-26, 65, 35]}
         intensity={2.4}
@@ -383,7 +383,7 @@ function Scene({
       <directionalLight
         position={[40, 20, -40]}
         intensity={0.48}
-        color="#85b49c"
+        color="#8da5a1"
       />
       <TechnicalStage
         size={simulation.size}
@@ -453,8 +453,8 @@ function RendererFallback({
         placeContent: "center",
         padding: 32,
         textAlign: "center",
-        color: "#bfccba",
-        background: "#101a17",
+        color: "#c1c7cc",
+        background: "#090f16",
         lineHeight: 1.7,
       }}
     >
