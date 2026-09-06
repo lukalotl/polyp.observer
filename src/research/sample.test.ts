@@ -19,7 +19,7 @@ function checkBounds(frame: ReturnType<typeof sampleTrajectory>) {
     ),
   ).toBeLessThanOrEqual(MAX_PREVIEW_LAYER_BYTES);
   for (let i = 1; i < frame.layerTimes.length - 1; i++)
-    expect(frame.layerTimes[i] - frame.layerTimes[i - 1]).toBe(frame.stride);
+    assert.equal(frame.layerTimes[i] - frame.layerTimes[i - 1], frame.stride);
 }
 
 describe("bounded previews of full-depth scientific trajectories", () => {
@@ -89,7 +89,8 @@ describe("bounded previews of full-depth scientific trajectories", () => {
     );
     frame.layerTimes.forEach((time, index) => {
       const plane = frame.simulation.layers[index];
-      expect(plane).toEqual(
+      assert.deepEqual(
+        plane,
         Uint32Array.of((((127 ** 2 - 1) / 2) << 4) | (1 + (time % 4))),
       );
     });
