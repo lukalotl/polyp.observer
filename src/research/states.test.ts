@@ -14,7 +14,12 @@ import {
   validateEngineState,
 } from "./engine";
 import { founderPresets, genomeKey, resizeGenome } from "./genome";
-import { LEGACY_MODEL_VERSION, MODEL_VERSION, type RunConfig } from "./types";
+import {
+  LEGACY_MODEL_VERSION,
+  PREVIOUS_MODEL_VERSION,
+  MODEL_VERSION,
+  type RunConfig,
+} from "./types";
 import { PRESETS } from "../simulation";
 
 const configFor = (
@@ -144,7 +149,11 @@ describe("state-independent scientific stepping and scoring", () => {
     (count) => {
       for (const seed of ["point", "cross"] as const)
         for (let variant = 1; variant <= 3; variant++) {
-          const cfg = configFor(count, { seed, objective: "complexity" });
+          const cfg = configFor(count, {
+            seed,
+            objective: "complexity",
+            boundaryPolicy: { spatial: false, horizon: false },
+          });
           const genome = Array.from({ length: count * 9 }, (_, locus) =>
             locus ? (locus * variant + Math.floor(locus / 7)) % count : 0,
           );
@@ -277,27 +286,46 @@ describe("state-count genetics and migration", () => {
       }
     },
   );
-  it("migrates only explicitly versioned five-state data without changing RNG, cache, metrics or continuation", async () => {
-    const original = await advanceGeneration(
-      await initializePopulation(configFor(5)),
-    );
-    const legacy: any = structuredClone(original);
-    legacy.modelVersion = LEGACY_MODEL_VERSION;
-    delete legacy.config.stateCount;
-    const migrated = validateEngineState(legacy);
-    expect(migrated).toEqual(original);
-    expect(await advanceGeneration(migrated)).toEqual(
-      await advanceGeneration(original),
-    );
-    expect(legacy.config.stateCount).toBeUndefined();
-    expect(() =>
-      validateEngineState({ ...legacy, modelVersion: MODEL_VERSION }),
-    ).toThrow();
-    expect(() =>
-      validateEngineState({
-        ...legacy,
-        config: { ...legacy.config, stateCount: 2 },
-      }),
-    ).toThrow(/Legacy configuration/);
-  });
+  it.each([LEGACY_MODEL_VERSION, PREVIOUS_MODEL_VERSION])(
+    "migrates explicit %s data without changing RNG, cache, metrics or continuation",
+    async (version) => {
+      const original = await advanceGeneration(
+        await initializePopulation(
+          configFor(version === LEGACY_MODEL_VERSION ? 5 : 16, {
+            boundaryPolicy: { spatial: false, horizon: false },
+          }),
+        ),
+      );
+      const legacy: any = structuredClone(original);
+      legacy.modelVersion = version;
+      delete legacy.config.boundaryPolicy;
+      if (version === LEGACY_MODEL_VERSION) delete legacy.config.stateCount;
+      for (const item of [
+        ...legacy.population,
+        legacy.champion,
+        ...legacy.cache.map((entry: any) => entry.evaluation),
+      ]) {
+        delete item.disqualified;
+        delete item.validationDisqualified;
+      }
+      const migrated = validateEngineState(legacy);
+      expect(migrated).toEqual(original);
+      expect(await advanceGeneration(migrated)).toEqual(
+        await advanceGeneration(original),
+      );
+      expect(legacy.config.boundaryPolicy).toBeUndefined();
+      expect(() =>
+        validateEngineState({ ...legacy, modelVersion: MODEL_VERSION }),
+      ).toThrow();
+      expect(() =>
+        validateEngineState({
+          ...legacy,
+          config: {
+            ...legacy.config,
+            boundaryPolicy: { spatial: false, horizon: false },
+          },
+        }),
+      ).toThrow(/Legacy configuration/);
+    },
+  );
 });

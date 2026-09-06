@@ -44,6 +44,12 @@ startup/recovery, and deployment boundaries.
   only when extinction is observed; a rule still alive at the cutoff scores zero.
   Complexity and Growth remain selectable. Existing runs retain their recorded
   objective; changing it requires a new experiment.
+- **Boundary disqualification**: new runs reject contact with any spatial edge
+  (left, right, front, back) and survival to the final timestep by default.
+  Each policy has its own checkbox. One rejected training fixture makes overall
+  fitness zero; held-out disqualification stays separate. The inspector reports
+  contact times, and the population marks rejected candidates `DQ`. Existing
+  runs keep their original policy; create a variant to change it.
 - **New run**: parameter fields or complete JSON configuration. Population,
   elitism, tournament/rank selection, crossover type/probability, per-locus
   mutation, immigrants, initialization, search RNG, fixture seeds, scoring

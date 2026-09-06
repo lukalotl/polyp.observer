@@ -14,6 +14,8 @@ function evaluationKey(config: RunConfig) {
     config.trainingSeeds,
     config.validationSeeds,
     config.objective,
+    config.boundaryPolicy?.spatial ?? false,
+    config.boundaryPolicy?.horizon ?? false,
     config.aggregation,
     config.objective === "complexity" ? config.weights : null,
   ]);

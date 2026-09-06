@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   validateEngineState,
+  migrateLegacyIndividual,
   generationSnapshot,
 } from "../src/research/engine";
 import type {
@@ -184,6 +185,9 @@ export class RunStore {
     )
       throw new Error("Invalid parent run id.");
     const checkpoint = validateCheckpoint(value.checkpoint);
+    const legacy =
+      record(value.checkpoint) &&
+      value.checkpoint.modelVersion !== checkpoint.modelVersion;
     if (
       !Array.isArray(value.archives) ||
       value.archives.length > checkpoint.config.retainedSnapshots
@@ -214,8 +218,12 @@ export class RunStore {
       const archiveState = validateEngineState({
         ...checkpoint.state,
         generation,
-        population: snapshot.population,
-        champion: snapshot.champion,
+        population: legacy
+          ? snapshot.population.map(migrateLegacyIndividual)
+          : snapshot.population,
+        champion: legacy
+          ? migrateLegacyIndividual(snapshot.champion)
+          : snapshot.champion,
         nextId:
           1 +
           checkpoint.config.populationSize +

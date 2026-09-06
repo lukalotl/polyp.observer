@@ -1,8 +1,9 @@
 import type { Genome, Simulation } from "../simulation";
-import type { RunConfig } from "./types";
+import type { RunConfig, BoundaryContacts } from "./types";
 
 export type Trajectory = Omit<Simulation, "layers" | "population"> & {
   population: Float64Array;
+  boundaryContacts: BoundaryContacts;
 };
 
 /** Mulberry32, identical to the frozen simulation's island-fixture RNG. */
@@ -67,6 +68,13 @@ export function streamTrajectory(
   }
   const population = new Float64Array(steps),
     counts = Array<number>(stateCount).fill(0);
+  const boundaryContacts: BoundaryContacts = {
+    left: null,
+    right: null,
+    front: null,
+    back: null,
+    horizon: false,
+  };
   let live = 0,
     occupied = 0,
     changed = 0,
@@ -83,6 +91,13 @@ export function streamTrajectory(
     population[t] = live;
     occupied += live;
     if (live > 0) lifetime++;
+    if (live > 0) {
+      if (minX === 0) boundaryContacts.left ??= t;
+      if (maxX === size - 1) boundaryContacts.right ??= t;
+      if (minZ === 0) boundaryContacts.front ??= t;
+      if (maxZ === size - 1) boundaryContacts.back ??= t;
+      if (t === steps - 1) boundaryContacts.horizon = true;
+    }
     // Locked gene 0 makes all remaining layers identically zero. Their counts
     // already occupy the zero-filled array, preserving denominators and variance.
     onLayer?.(t, current, live, { minX, maxX, minZ, maxZ });
@@ -148,5 +163,6 @@ export function streamTrajectory(
     occupancy: occupied / (area * steps),
     lifetime,
     extinct: population[steps - 1] === 0,
+    boundaryContacts,
   };
 }

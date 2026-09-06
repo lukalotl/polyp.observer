@@ -1,6 +1,10 @@
 import { PRESETS, type Genome } from "../simulation";
 import { MIN_STATE_COUNT, MAX_STATE_COUNT } from "./genome";
-import type { RunConfig } from "./types";
+import {
+  LEGACY_MODEL_VERSION,
+  PREVIOUS_MODEL_VERSION,
+  type RunConfig,
+} from "./types";
 import { MAX_GRID_SIZE, MAX_CA_STEPS, maxHorizon } from "./limits";
 
 /** Outer-totalistic Moore CA: configurable states, zero-quiescence and zero halo. */
@@ -13,6 +17,7 @@ export const DEFAULT_RUN_CONFIG: RunConfig = {
   trainingSeeds: [1729],
   validationSeeds: [],
   objective: "longevity",
+  boundaryPolicy: { spatial: true, horizon: true },
   aggregation: "mean",
   weights: { diversity: 0.34, activity: 0.3, density: 0.24, variation: 0.12 },
   seedGenome: PRESETS[0].genome.slice(),
@@ -167,6 +172,13 @@ export function validateRunConfig(value: unknown): RunConfig {
     throw new RangeError("Weights must have positive sum.");
   if (typeof v.resumeOnRestart !== "boolean")
     throw new RangeError("resumeOnRestart must be boolean.");
+  const boundary = record(v.boundaryPolicy, "Boundary policy");
+  exactKeys(boundary, ["spatial", "horizon"], "Boundary policy");
+  if (
+    typeof boundary.spatial !== "boolean" ||
+    typeof boundary.horizon !== "boolean"
+  )
+    throw new RangeError("Boundary policy settings must be boolean.");
   const trainingSeeds = seeds(v.trainingSeeds, 1, "Training seeds"),
     validationSeeds = seeds(v.validationSeeds, 0, "Validation seeds");
   if (
@@ -191,6 +203,7 @@ export function validateRunConfig(value: unknown): RunConfig {
       "objective",
     ),
     aggregation: choice(v.aggregation, ["mean", "minimum"], "aggregation"),
+    boundaryPolicy: { spatial: boundary.spatial, horizon: boundary.horizon },
     weights,
     seedGenome: validateGenome(v.seedGenome, stateCount),
     initialization: choice(
@@ -247,12 +260,25 @@ export function validateRunConfig(value: unknown): RunConfig {
 }
 
 /** Only the explicitly versioned five-state checkpoint format may omit stateCount. */
-export function migrateLegacyRunConfig(value: unknown): RunConfig {
+export function migrateLegacyRunConfig(
+  value: unknown,
+  version = LEGACY_MODEL_VERSION,
+): RunConfig {
+  if (version !== LEGACY_MODEL_VERSION && version !== PREVIOUS_MODEL_VERSION)
+    throw new RangeError("Unsupported legacy model version.");
   const v = record(value, "Legacy configuration");
   exactKeys(
     v,
-    Object.keys(DEFAULT_RUN_CONFIG).filter((key) => key !== "stateCount"),
+    Object.keys(DEFAULT_RUN_CONFIG).filter(
+      (key) =>
+        key !== "boundaryPolicy" &&
+        (version !== LEGACY_MODEL_VERSION || key !== "stateCount"),
+    ),
     "Legacy configuration",
   );
-  return validateRunConfig({ ...v, stateCount: 5 });
+  return validateRunConfig({
+    ...v,
+    ...(version === LEGACY_MODEL_VERSION ? { stateCount: 5 } : {}),
+    boundaryPolicy: { spatial: false, horizon: false },
+  });
 }

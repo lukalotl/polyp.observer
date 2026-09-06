@@ -148,17 +148,29 @@ export default function PopulationView({
                 <td className="rv-id" title={individual.id}>
                   {individual.id}
                 </td>
-                <td title={String(individual.fitness)}>
-                  {formatFitness(individual.fitness)}
+                <td
+                  title={
+                    individual.disqualified
+                      ? "Disqualified: boundary contact in a training fixture. Fitness 0."
+                      : String(individual.fitness)
+                  }
+                >
+                  {individual.disqualified
+                    ? "0 · DQ"
+                    : formatFitness(individual.fitness)}
                 </td>
                 <td
                   title={
-                    individual.validationFitness === null
-                      ? "Not evaluated"
-                      : String(individual.validationFitness)
+                    individual.validationDisqualified
+                      ? "Disqualified: boundary contact in a held-out fixture. Fitness 0."
+                      : individual.validationFitness === null
+                        ? "Not evaluated"
+                        : String(individual.validationFitness)
                   }
                 >
-                  {formatFitness(individual.validationFitness)}
+                  {individual.validationDisqualified
+                    ? "0 · DQ"
+                    : formatFitness(individual.validationFitness)}
                 </td>
                 <td>{individual.birthGeneration}</td>
                 <td

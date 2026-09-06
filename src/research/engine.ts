@@ -12,6 +12,7 @@ import { evaluateBatch } from "./evaluate";
 import {
   MODEL_VERSION,
   LEGACY_MODEL_VERSION,
+  PREVIOUS_MODEL_VERSION,
   type BatchEvaluator,
   type CachedEvaluation,
   type EngineState,
@@ -37,6 +38,8 @@ const metricKeys: (keyof FitnessMetrics)[] = [
 const evaluationKeys = [
   "fitness",
   "validationFitness",
+  "disqualified",
+  "validationDisqualified",
   "trainingScores",
   "validationScores",
   "metrics",
@@ -106,7 +109,7 @@ function aggregate(scores: number[], config: RunConfig): number {
     ? Math.min(...scores)
     : scores.reduce((a, b) => a + b, 0) / scores.length;
 }
-function evaluation(
+export function validateEvaluation(
   value: unknown,
   config: RunConfig,
   strict = true,
@@ -134,12 +137,31 @@ function evaluation(
       ? null
       : finite(v.validationFitness, 0, 1, "Validation fitness");
   if (
-    Math.abs(fitness - aggregate(trainingScores, config)) > 1e-12 ||
+    typeof v.disqualified !== "boolean" ||
+    typeof v.validationDisqualified !== "boolean"
+  )
+    throw new RangeError("Disqualification flags must be boolean.");
+  const { disqualified, validationDisqualified } = v;
+  if (
+    (!config.boundaryPolicy.spatial &&
+      !config.boundaryPolicy.horizon &&
+      (disqualified || validationDisqualified)) ||
+    (disqualified && !trainingScores.includes(0)) ||
+    (validationDisqualified && !validationScores.includes(0))
+  )
+    throw new RangeError(
+      "Disqualification contradicts boundary policy or fixture scores.",
+    );
+  if (
+    Math.abs(fitness - (disqualified ? 0 : aggregate(trainingScores, config))) >
+      1e-12 ||
     (validationScores.length === 0
       ? validationFitness !== null
       : validationFitness === null ||
-        Math.abs(validationFitness - aggregate(validationScores, config)) >
-          1e-12)
+        Math.abs(
+          validationFitness -
+            (validationDisqualified ? 0 : aggregate(validationScores, config)),
+        ) > 1e-12)
   )
     throw new RangeError(
       "Fitness must match the configured fixture aggregation.",
@@ -157,6 +179,8 @@ function evaluation(
   return {
     fitness,
     validationFitness,
+    disqualified,
+    validationDisqualified,
     trainingScores,
     validationScores,
     metrics,
@@ -199,7 +223,7 @@ async function evaluateCandidates(
     if (!Array.isArray(results) || results.length !== missing.length)
       throw new RangeError("Evaluator returned wrong batch length.");
     for (let i = 0; i < results.length; i++)
-      resolved.set(missingKeys[i], evaluation(results[i], config));
+      resolved.set(missingKeys[i], validateEvaluation(results[i], config));
     state.evaluations +=
       missing.length *
       (config.trainingSeeds.length + config.validationSeeds.length);
@@ -472,6 +496,22 @@ export function generationSnapshot(state: EngineState): GenerationSnapshot {
   };
 }
 
+/** Explicit v1/v2 migration preserves scores and never replays historical selection. */
+function migrateLegacyEvaluation(value: unknown, individual = false) {
+  const v = record(value, "Legacy evaluation");
+  exactKeys(
+    v,
+    (individual ? individualKeys : evaluationKeys).filter(
+      (key) => key !== "disqualified" && key !== "validationDisqualified",
+    ),
+    "Legacy evaluation",
+  );
+  return { ...v, disqualified: false, validationDisqualified: false };
+}
+export function migrateLegacyIndividual(value: unknown) {
+  return migrateLegacyEvaluation(value, true);
+}
+
 /** Checkpoint trust boundary: bounded lengths checked before allocating; no coercion.
  * This validates structural/scientific invariants, not authenticity of externally
  * supplied fitness values (that would require replaying every historical fixture).
@@ -479,12 +519,35 @@ export function generationSnapshot(state: EngineState): GenerationSnapshot {
 export function validateEngineState(value: unknown): EngineState {
   const v = record(value, "Engine state");
   exactKeys(v, stateKeys, "Engine state");
-  if (v.version === 1 && v.modelVersion === LEGACY_MODEL_VERSION)
+  if (
+    v.version === 1 &&
+    (v.modelVersion === LEGACY_MODEL_VERSION ||
+      v.modelVersion === PREVIOUS_MODEL_VERSION)
+  ) {
+    const config = migrateLegacyRunConfig(v.config, v.modelVersion);
+    if (
+      !Array.isArray(v.population) ||
+      v.population.length !== config.populationSize ||
+      !Array.isArray(v.cache) ||
+      v.cache.length > config.cacheSize
+    )
+      throw new RangeError("Legacy population/cache size mismatch.");
     return validateEngineState({
       ...v,
       modelVersion: MODEL_VERSION,
-      config: migrateLegacyRunConfig(v.config),
+      config,
+      population: v.population.map(migrateLegacyIndividual),
+      champion: migrateLegacyIndividual(v.champion),
+      cache: v.cache.map((entry) => {
+        const item = record(entry, "Legacy cache entry");
+        exactKeys(item, ["key", "evaluation"], "Legacy cache entry");
+        return {
+          key: item.key,
+          evaluation: migrateLegacyEvaluation(item.evaluation),
+        };
+      }),
     });
+  }
   if (v.version !== 1 || v.modelVersion !== MODEL_VERSION)
     throw new RangeError("Unsupported engine/model version.");
   const config = validateRunConfig(v.config);
@@ -605,7 +668,7 @@ export function validateEngineState(value: unknown): EngineState {
           throw new RangeError("Genome contradicts crossover/mutation trace.");
       }
     return {
-      ...evaluation(item, config, false),
+      ...validateEvaluation(item, config, false),
       id: individualId,
       genome,
       birthGeneration,
@@ -647,7 +710,10 @@ export function validateEngineState(value: unknown): EngineState {
       )
     )
       throw new RangeError("Cache key must be a complete quiescent genome.");
-    return { key: item.key, evaluation: evaluation(item.evaluation, config) };
+    return {
+      key: item.key,
+      evaluation: validateEvaluation(item.evaluation, config),
+    };
   });
   if (new Set(cache.map((entry) => entry.key)).size !== cache.length)
     throw new RangeError("Duplicate LRU cache keys.");

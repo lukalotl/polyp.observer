@@ -34,6 +34,8 @@ const synthetic = (
   return {
     fitness,
     validationFitness: cfg.validationSeeds.length ? 1 - fitness : null,
+    disqualified: false,
+    validationDisqualified: false,
     trainingScores: cfg.trainingSeeds.map(() => fitness),
     validationScores: cfg.validationSeeds.map(() => 1 - fitness),
     metrics: {
@@ -399,6 +401,7 @@ describe("selection, neutral diversity, validation and scientific metrics", () =
   it("finds a reproducible strict improvement through the real CA pipeline", async () => {
     const cfg = config({
       objective: "complexity",
+      boundaryPolicy: { spatial: false, horizon: false },
       size: 17,
       steps: 20,
       populationSize: 24,

@@ -50,7 +50,7 @@ export function sampleTrajectory(
   const empty = new Uint32Array(0);
   let voxels = 0,
     bytes = 0;
-  const trajectory = streamTrajectory(
+  const { boundaryContacts, ...trajectory } = streamTrajectory(
     genome,
     config,
     seed,
@@ -96,5 +96,6 @@ export function sampleTrajectory(
     layerTimes,
     totalSteps: steps,
     stride: 1,
+    boundaryContacts,
   };
 }

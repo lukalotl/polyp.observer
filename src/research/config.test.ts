@@ -21,6 +21,7 @@ describe("pinned, bounded research configuration", () => {
       trainingSeeds: [1729],
       validationSeeds: [],
       objective: "longevity",
+      boundaryPolicy: { spatial: true, horizon: true },
       aggregation: "mean",
       weights: {
         diversity: 0.34,
@@ -50,6 +51,8 @@ describe("pinned, bounded research configuration", () => {
     result.seedGenome[1] = 4;
     result.trainingSeeds.push(2);
     result.weights.activity = 9;
+    result.boundaryPolicy.spatial = false;
+    expect(DEFAULT_RUN_CONFIG.boundaryPolicy.spatial).toBe(true);
     expect(DEFAULT_RUN_CONFIG.seedGenome).toEqual(PRESETS[0].genome);
     expect(DEFAULT_RUN_CONFIG.trainingSeeds).toEqual([1729]);
     expect(DEFAULT_RUN_CONFIG.weights.activity).toBe(0.3);
@@ -117,6 +120,11 @@ describe("pinned, bounded research configuration", () => {
     { size: "49" },
     { stateCount: 8 },
     { boundary: "toroidal" },
+    { boundaryPolicy: undefined },
+    { boundaryPolicy: { spatial: true } },
+    { boundaryPolicy: { spatial: "yes", horizon: true } },
+    { boundaryPolicy: { spatial: true, horizon: 1 } },
+    { boundaryPolicy: { spatial: true, horizon: true, extra: false } },
   ])("rejects unsafe or silently changed settings: %j", (update) => {
     expect(() =>
       validateRunConfig({ ...DEFAULT_RUN_CONFIG, ...update }),

@@ -1,3 +1,4 @@
+import { boundaryDescription, isDisqualified } from "./research/boundaries";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
@@ -706,7 +707,7 @@ export default function App() {
                   </select>
                   <span className="candidate-identity" title={individual?.id}>
                     {individual
-                      ? `${individual.id} · ${fitnessNumber(individual.fitness)}`
+                      ? `${individual.id} · ${individual.disqualified ? "0 · Disqualified" : fitnessNumber(individual.fitness)}`
                       : "Founder · not evaluated"}
                   </span>
                   <span className="toolbar-space" />
@@ -966,6 +967,24 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                {frame?.boundaryContacts && (
+                  <div
+                    className="fixture-boundaries"
+                    aria-label="Fixture boundary contacts"
+                  >
+                    {detail.config.boundaryPolicy &&
+                    isDisqualified(
+                      frame.boundaryContacts,
+                      detail.config.boundaryPolicy,
+                    )
+                      ? "Fixture disqualified · "
+                      : "Fixture · "}
+                    {boundaryDescription(
+                      frame.boundaryContacts,
+                      frame.totalSteps - 1,
+                    )}
+                  </div>
+                )}
                 <div className="ca-timeline">
                   <button
                     aria-label={

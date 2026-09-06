@@ -1,7 +1,20 @@
 import type { Genome, Objective, SeedMode, Simulation } from "../simulation";
 
 export const LEGACY_MODEL_VERSION = "ca5-moore-research-v1";
-export const MODEL_VERSION = "ca-moore-research-v2";
+export const PREVIOUS_MODEL_VERSION = "ca-moore-research-v2";
+export const MODEL_VERSION = "ca-moore-research-v3";
+
+export interface BoundaryPolicy {
+  spatial: boolean;
+  horizon: boolean;
+}
+export interface BoundaryContacts {
+  left: number | null;
+  right: number | null;
+  front: number | null;
+  back: number | null;
+  horizon: boolean;
+}
 
 export interface FitnessWeights {
   diversity: number;
@@ -18,6 +31,7 @@ export interface RunConfig {
   trainingSeeds: number[];
   validationSeeds: number[];
   objective: Objective;
+  boundaryPolicy: BoundaryPolicy;
   aggregation: "mean" | "minimum";
   weights: FitnessWeights;
   seedGenome: Genome;
@@ -52,6 +66,8 @@ export interface FitnessMetrics {
   extinctFraction: number;
 }
 export interface Evaluation {
+  disqualified: boolean;
+  validationDisqualified: boolean;
   fitness: number;
   validationFitness: number | null;
   trainingScores: number[];
@@ -215,6 +231,7 @@ export interface PreviewFrame {
   layerTimes: number[];
   totalSteps: number;
   stride: number;
+  boundaryContacts?: BoundaryContacts;
 }
 export interface PreviewRange {
   start: number;

@@ -23,12 +23,8 @@ port.on(
     range?: PreviewRange;
   }) => {
     try {
-      const { simulation, layerTimes, totalSteps, stride } = sampleTrajectory(
-        genome,
-        config,
-        seed,
-        range,
-      );
+      const { simulation, layerTimes, totalSteps, stride, boundaryContacts } =
+        sampleTrajectory(genome, config, seed, range);
       const frame: PreviewFrame = {
         genome,
         seed,
@@ -46,6 +42,7 @@ port.on(
         layerTimes,
         totalSteps,
         stride,
+        boundaryContacts,
       };
       port.postMessage({ frame });
     } catch (error) {

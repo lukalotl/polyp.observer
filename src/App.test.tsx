@@ -89,6 +89,36 @@ async function submit(name = "Create paused") {
 }
 
 describe("complete, immutable run configuration", () => {
+  it("defaults both boundary policies on and serializes independent overrides through fields and JSON", async () => {
+    const { onCreate } = dialog();
+    const spatial = screen.getByLabelText("Disqualify spatial edge contact");
+    const horizon = screen.getByLabelText("Disqualify time cutoff contact");
+    expect(spatial).toBeChecked();
+    expect(horizon).toBeChecked();
+    fireEvent.click(spatial);
+    await submit();
+    expect(onCreate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        boundaryPolicy: { spatial: false, horizon: true },
+      }),
+      false,
+    );
+    fireEvent.click(horizon);
+    fireEvent.click(screen.getByLabelText("Edit configuration JSON"));
+    expect(
+      JSON.parse(
+        (screen.getByLabelText("Configuration JSON") as HTMLTextAreaElement)
+          .value,
+      ).boundaryPolicy,
+    ).toEqual({ spatial: false, horizon: false });
+    await submit();
+    expect(onCreate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        boundaryPolicy: { spatial: false, horizon: false },
+      }),
+      false,
+    );
+  });
   it("submits larger grids and deep scale presets through the real configuration dialog", async () => {
     const { onCreate } = dialog();
     field("Grid size", 513);
@@ -750,42 +780,54 @@ describe("API-backed research workbench", () => {
     );
     expect(http.mutations).toHaveLength(posts);
   });
-  it("compares frozen HTTP histories and warns when fitness objectives are not comparable", async () => {
-    const other = await researchFixture("comparison-run", 1, {
-      name: "Different objective",
-      objective: "growth",
-    });
-    const { socket } = await mountApp();
-    socket.reply({ type: "runs", ...runList([fixture.detail, other.detail]) });
-    fireEvent.click(screen.getByRole("tab", { name: "Compare" }));
-    await http.reply("/api/runs/run-a", fixture.detail);
-    field("Add comparison run", "comparison-run");
-    await http.reply("/api/runs/run-a", fixture.detail);
-    await http.reply("/api/runs/comparison-run", other.detail);
-    expect(
-      screen.getByText(
-        "Different evaluation settings: these fitness scores are not directly comparable.",
-      ),
-    ).toBeVisible();
-    const chart = screen.getByRole("img", {
-      name: "Best fitness comparison by selected run",
-    });
-    expect(chart.querySelectorAll("polyline")).toHaveLength(2);
-    const requestCount = http.requests.length;
-    field("Comparison axis", "generation");
-    expect(http.requests).toHaveLength(requestCount);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh comparison" }));
-    await http.reply(
-      "/api/runs/run-a",
-      { error: "Run is temporarily unavailable." },
-      "GET",
-      503,
-    );
-    await http.reply("/api/runs/comparison-run", other.detail);
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Run is temporarily unavailable.",
-    );
-  });
+  it.each<Partial<RunConfig>>([
+    { objective: "growth" },
+    { boundaryPolicy: { spatial: false, horizon: true } },
+    { boundaryPolicy: { spatial: true, horizon: false } },
+  ])(
+    "warns when comparison evaluation settings differ: %j",
+    async (settings) => {
+      const other = await researchFixture("comparison-run", 1, {
+        name: "Different evaluation",
+        ...settings,
+      });
+      const { socket } = await mountApp();
+      socket.reply({
+        type: "runs",
+        ...runList([fixture.detail, other.detail]),
+      });
+      fireEvent.click(screen.getByRole("tab", { name: "Compare" }));
+      await http.reply("/api/runs/run-a", fixture.detail);
+      field("Add comparison run", "comparison-run");
+      await http.reply("/api/runs/run-a", fixture.detail);
+      await http.reply("/api/runs/comparison-run", other.detail);
+      expect(
+        screen.getByText(
+          "Different evaluation settings: these fitness scores are not directly comparable.",
+        ),
+      ).toBeVisible();
+      const chart = screen.getByRole("img", {
+        name: "Best fitness comparison by selected run",
+      });
+      expect(chart.querySelectorAll("polyline")).toHaveLength(2);
+      const requestCount = http.requests.length;
+      field("Comparison axis", "generation");
+      expect(http.requests).toHaveLength(requestCount);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Refresh comparison" }),
+      );
+      await http.reply(
+        "/api/runs/run-a",
+        { error: "Run is temporarily unavailable." },
+        "GET",
+        503,
+      );
+      await http.reply("/api/runs/comparison-run", other.detail);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Run is temporarily unavailable.",
+      );
+    },
+  );
   it("checkpoints durably before starting a download and imports complete state as a new paused identity", async () => {
     const click = vi
       .spyOn(HTMLAnchorElement.prototype, "click")

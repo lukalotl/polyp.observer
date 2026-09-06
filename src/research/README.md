@@ -5,7 +5,7 @@ reproduction of a published biological model**. Its three objectives are bounded
 transparent heuristics. Higher fitness is evidence about these finite fixtures,
 not biological validity or generalization. The legacy `src/simulation` remains an
 unchanged, small-volume golden reference. Training and preview share
-`trajectory.ts`, a streaming simulator with optional sampled-plane observation.
+`trajectory.ts`, a streaming simulator with optional consecutive-plane observation.
 
 ## Public contract
 
@@ -27,7 +27,7 @@ unchanged, small-volume golden reference. Training and preview share
 
 ## Pinned science and evaluation
 
-`MODEL_VERSION = ca-moore-research-v2`: `stateCount` is 2–16 (including empty
+`MODEL_VERSION = ca-moore-research-v3`: `stateCount` is 2–16 (including empty
 state 0), with exactly `9 * stateCount` integer genes in `[0, stateCount - 1]`,
 indexed by `currentState * 9 + occupiedMooreNeighbors`. Neighbors are occupied
 counts, not sums of states. Gene 0 is always zero. Updates are synchronous, with a
@@ -38,7 +38,8 @@ Five-state evaluation reproduces legacy point/cross/islands placement and Mulber
 Islands draw uniformly from occupied states 1 through `stateCount - 1`; their
 secondary neighbor uses state 2, or state 1 for binary rules. Point/cross use state 1.
 The explicit `ca5-moore-research-v1` checkpoint format migrates by adding
-`stateCount: 5` and upgrading the model tag. RNG, fitness, IDs, cache, ancestry,
+`stateCount: 5`. Both v1 and `ca-moore-research-v2` migrate to v3 with
+`boundaryPolicy: { spatial: false, horizon: false }` and false qualification flags. RNG, fitness, IDs, cache, ancestry,
 archives and five-state normalization are preserved exactly. New configurations
 must specify the count; missing fields and unknown model versions are rejected.
 It stores **two haloed lattice buffers** and one `Float64Array(steps)` population
@@ -49,7 +50,8 @@ activity, variance, survival and finite-longevity denominators do not shorten.
 Variance uses the legacy ordered centered sum, not unstable `E[x²] - E[x]²`.
 
 Each genome is evaluated on all fixed training seeds and then all held-out seeds.
-Fitness is the training **mean** or **minimum**. Validation is aggregated separately
+Fitness is the training **mean** or **minimum**, unless any training fixture is
+disqualified, in which case overall fitness is zero. Validation is aggregated separately
 using the same rule and is **never** used for parent selection, elites, tie breaks,
 or all-time champion. Metrics always average **training fixtures**, even when
 fitness uses minimum. Fixtures count separately even if their trajectories match.
@@ -71,6 +73,18 @@ fitness uses minimum. Fixtures count separately even if their trajectories match
   surviving at the horizon is censored and scores zero. This is finite longevity,
   not a claim that all survivors are immortal.
 - Changing complexity weights does not affect growth or longevity.
+- `boundaryPolicy` defaults to `{ spatial: true, horizon: true }` in new runs.
+  Spatial contact means any occupied cell at x=0, x=size−1, z=0 or z=size−1,
+  including corners. Contact at any timestep disqualifies that fixture even if
+  it subsequently becomes extinct. Horizon contact means occupancy at t=steps−1.
+  The intentional t=0 seed is not itself a disqualifying time boundary.
+  Each switch independently sets contacting fixtures' scores to zero. Any such
+  training fixture sets `disqualified` and forces aggregate fitness to zero;
+  `validationDisqualified` applies the same rule only to held-out fitness.
+  Non-rejected per-fixture scores and all observed metrics are retained.
+  Turning the horizon policy off does not remove finite longevity's intrinsic
+  requirement for observed extinction. Preview contacts always describe the
+  complete fixture, including when the rendered time range is cropped.
 
 Individual metrics: `diversity` is occupied-state Shannon entropy / log(stateCount − 1), or 0 for binary rules;
 `activity` is normalized **motion** (`clamp(changedFraction / max(occupancy,.01))`),

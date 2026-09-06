@@ -1,5 +1,6 @@
 import type { Genome } from "../simulation";
 import { validateGenome, validateRunConfig } from "./config";
+import { isDisqualified } from "./boundaries";
 import { streamTrajectory } from "./trajectory";
 import type { Evaluation, FitnessMetrics, RunConfig } from "./types";
 
@@ -20,7 +21,7 @@ function fixture(
   genome: Genome,
   config: RunConfig,
   seed: number,
-): { score: number; metrics: FitnessMetrics } {
+): { score: number; metrics: FitnessMetrics; disqualified: boolean } {
   const { size, steps } = config;
   const area = size * size;
   const simulation = streamTrajectory(genome, config, seed);
@@ -67,7 +68,11 @@ function fixture(
           (w.variation / total) * variation),
     );
   }
-  return { score, metrics };
+  const disqualified = isDisqualified(
+    simulation.boundaryContacts,
+    config.boundaryPolicy,
+  );
+  return { score: disqualified ? 0 : score, metrics, disqualified };
 }
 
 function evaluateValid(genome: Genome, config: RunConfig): Evaluation {
@@ -75,8 +80,13 @@ function evaluateValid(genome: Genome, config: RunConfig): Evaluation {
     fixture(genome, config, seed),
   );
   const trainingScores = training.map((result) => result.score);
-  const validationScores = config.validationSeeds.map(
-    (seed) => fixture(genome, config, seed).score,
+  const validation = config.validationSeeds.map((seed) =>
+    fixture(genome, config, seed),
+  );
+  const validationScores = validation.map((result) => result.score);
+  const disqualified = training.some((result) => result.disqualified);
+  const validationDisqualified = validation.some(
+    (result) => result.disqualified,
   );
   const aggregate = (scores: number[]) =>
     config.aggregation === "minimum"
@@ -90,9 +100,13 @@ function evaluateValid(genome: Genome, config: RunConfig): Evaluation {
     ]),
   ) as unknown as FitnessMetrics;
   return {
-    fitness: aggregate(trainingScores),
+    fitness: disqualified ? 0 : aggregate(trainingScores),
+    disqualified,
+    validationDisqualified,
     validationFitness: validationScores.length
-      ? aggregate(validationScores)
+      ? validationDisqualified
+        ? 0
+        : aggregate(validationScores)
       : null,
     trainingScores,
     validationScores,

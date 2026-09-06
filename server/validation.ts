@@ -1,6 +1,7 @@
 import {
   MODEL_VERSION,
   LEGACY_MODEL_VERSION,
+  PREVIOUS_MODEL_VERSION,
   type RunCheckpoint,
 } from "../src/research/types";
 import {
@@ -10,6 +11,8 @@ import {
 } from "../src/research/config";
 import {
   validateEngineState,
+  validateEvaluation,
+  migrateLegacyIndividual,
   generationSnapshot,
 } from "../src/research/engine";
 
@@ -139,12 +142,13 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
     value.format !== "polyp-research-checkpoint" ||
     value.version !== 1 ||
     (value.modelVersion !== MODEL_VERSION &&
-      value.modelVersion !== LEGACY_MODEL_VERSION)
+      value.modelVersion !== LEGACY_MODEL_VERSION &&
+      value.modelVersion !== PREVIOUS_MODEL_VERSION)
   )
     throw new Error("Unsupported checkpoint format or model version.");
   const config =
-    value.modelVersion === LEGACY_MODEL_VERSION
-      ? migrateLegacyRunConfig(value.config)
+    value.modelVersion !== MODEL_VERSION
+      ? migrateLegacyRunConfig(value.config, value.modelVersion as string)
       : validateRunConfig(value.config);
   const geneCount = 9 * config.stateCount;
   runName(config.name);
@@ -214,7 +218,11 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
   } else if (value.history.length || value.improvements.length)
     throw new Error("Uninitialized checkpoint cannot contain history.");
   previous = -1;
-  for (const point of value.improvements) {
+  const improvements = value.improvements.map((point) => {
+    if (value.modelVersion === MODEL_VERSION || !record(point)) return point;
+    return { ...point, individual: migrateLegacyIndividual(point.individual) };
+  });
+  for (const point of improvements) {
     if (
       !record(point) ||
       !Number.isSafeInteger(point.generation) ||
@@ -238,6 +246,8 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
         "mutatedLoci",
         "fitness",
         "validationFitness",
+        "disqualified",
+        "validationDisqualified",
         "trainingScores",
         "validationScores",
         "metrics",
@@ -252,11 +262,14 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
         "mutatedLoci",
         "fitness",
         "validationFitness",
+        "disqualified",
+        "validationDisqualified",
         "trainingScores",
         "validationScores",
         "metrics",
       ],
     );
+    validateEvaluation(individual, config, false);
     genome(individual.genome, config.stateCount);
     if (
       !Number.isSafeInteger(individual.birthGeneration) ||
@@ -355,5 +368,6 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
     modelVersion: MODEL_VERSION,
     config,
     state,
+    improvements,
   } as unknown as RunCheckpoint;
 }

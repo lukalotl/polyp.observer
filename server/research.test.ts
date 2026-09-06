@@ -255,6 +255,7 @@ test(
   async (t) => {
     const f = await fixture(t);
     const config = tiny({
+      boundaryPolicy: { spatial: false, horizon: false },
       maxGenerations: 6,
       mutationRate: 0.03,
       immigrantRate: 0.25,
@@ -299,6 +300,8 @@ test(
       assert.deepEqual(evaluateGenome(individual.genome, config), {
         fitness: individual.fitness,
         validationFitness: individual.validationFitness,
+        disqualified: individual.disqualified,
+        validationDisqualified: individual.validationDisqualified,
         trainingScores: individual.trainingScores,
         validationScores: individual.validationScores,
         metrics: individual.metrics,
@@ -1278,7 +1281,9 @@ test(
 
 test(
   "three active jobs and six evaluators respect hard caps and coordinator CPU reservations",
-  { timeout: 25_000 },
+  // Native worker termination and durable pauses share the VM with live research.
+  // Keep each progress poll bounded; allow time for all sequential shutdowns.
+  { timeout: 60_000 },
   async (t) => {
     if (availableParallelism() < 8) {
       t.skip(

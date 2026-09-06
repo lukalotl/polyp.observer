@@ -29,6 +29,8 @@ function member(index: number): Individual {
     parents: [],
     crossoverMask: [],
     mutatedLoci: [],
+    disqualified: false,
+    validationDisqualified: false,
     trainingScores: [],
     validationScores: [],
     metrics: {

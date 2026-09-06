@@ -17,6 +17,7 @@ const config = (updates: Partial<RunConfig> = {}): RunConfig => ({
   size: 17,
   steps: 24,
   objective: "complexity",
+  boundaryPolicy: { spatial: false, horizon: false },
   ...updates,
 });
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
@@ -100,6 +101,7 @@ describe("streaming scalar evaluator versus frozen space-time golden engine", ()
       ] as Objective[]) {
         const cfg = config({
           ...DEFAULT_RUN_CONFIG,
+          boundaryPolicy: { spatial: false, horizon: false },
           size: 49,
           steps: 96,
           seed: preset.seed,

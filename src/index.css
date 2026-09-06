@@ -588,6 +588,13 @@ input[type="range"]:disabled {
   cursor: pointer;
   margin: 9px 0;
 }
+.fixture-boundaries {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  font: 9px var(--mono);
+  color: #99ae89;
+  overflow-wrap: anywhere;
+}
 .ca-timeline {
   display: flex;
   align-items: center;

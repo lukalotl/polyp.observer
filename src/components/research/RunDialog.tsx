@@ -340,6 +340,40 @@ export default function RunDialog({
                     to observe longer finite lifetimes.
                   </p>
                 )}
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={draft.boundaryPolicy?.spatial ?? false}
+                    onChange={(event) =>
+                      update("boundaryPolicy", {
+                        ...draft.boundaryPolicy,
+                        spatial: event.target.checked,
+                      })
+                    }
+                  />
+                  Disqualify spatial edge contact
+                </label>
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={draft.boundaryPolicy?.horizon ?? false}
+                    onChange={(event) =>
+                      update("boundaryPolicy", {
+                        ...draft.boundaryPolicy,
+                        horizon: event.target.checked,
+                      })
+                    }
+                  />
+                  Disqualify time cutoff contact
+                </label>
+                <p className="config-note">
+                  Any occupied cell touching the left, right, front or back
+                  edge, or remaining at the final timestep, counts as contact.
+                  One disqualifying training fixture gives the whole candidate
+                  zero fitness. Held-out fixtures are assessed separately.
+                  Finite longevity always requires extinction before the cutoff,
+                  even with cutoff disqualification off.
+                </p>
                 <label className="config-field">
                   <span>Aggregation</span>
                   <select

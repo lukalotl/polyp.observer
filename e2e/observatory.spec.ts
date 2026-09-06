@@ -86,7 +86,7 @@ test.beforeEach(async ({ page, context, request }) => {
   expect(await health.json()).toMatchObject({
     status: "ok",
     execution: "node:worker_threads",
-    modelVersion: "ca-moore-research-v2",
+    modelVersion: "ca-moore-research-v3",
   });
   await open(page);
 });
@@ -226,6 +226,81 @@ async function screenArtifact(page: Page, testInfo: TestInfo, name: string) {
   await page.screenshot({ path });
   await testInfo.attach(name, { path, contentType: "image/png" });
 }
+
+test("boundary settings disqualify spatial contact in the real evaluator and show the reason", async ({
+  page,
+  request,
+}, testInfo) => {
+  await open(page);
+  const genome = [0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const run = await createRun(page, testInfo, false, {
+    stateCount: 2,
+    seedGenome: genome,
+    size: 9,
+    steps: 16,
+    seed: "islands",
+    trainingSeeds: [1],
+    validationSeeds: [],
+    mutationRate: 0,
+    immigrantRate: 0,
+  });
+  expect(run.config.boundaryPolicy).toEqual({ spatial: true, horizon: true });
+  const evaluated = await step(page, request, run.summary.id);
+  expect(
+    evaluated.snapshot!.population.every(
+      (item) => item.disqualified && item.fitness === 0,
+    ),
+  ).toBe(true);
+  const reason = page.getByLabel("Fixture boundary contacts");
+  await expect(reason).toContainText("Fixture disqualified");
+  await expect(reason).toContainText("left at t=3");
+  await expect(reason).toContainText("right at t=12");
+  await expect(reason).toContainText("front at t=8");
+  await page.getByRole("tab", { name: "Population", exact: true }).click();
+  await expect(
+    page.getByRole("table", { name: "Population ranked by training fitness" }),
+  ).toContainText("0 · DQ");
+  await page
+    .getByRole("button", { name: "New run", exact: true })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog", { name: "New run", exact: true });
+  const spatial = dialog.getByLabel("Disqualify spatial edge contact");
+  const horizon = dialog.getByLabel("Disqualify time cutoff contact");
+  await expect(spatial).toBeChecked();
+  await expect(horizon).toBeChecked();
+  await spatial.uncheck();
+  await horizon.uncheck();
+  await dialog.getByRole("button", { name: "Edit configuration JSON" }).click();
+  const editor = dialog.getByRole("textbox", { name: "Configuration JSON" });
+  const config = {
+    ...JSON.parse(await editor.inputValue()),
+    ...run.config,
+    name: `e2e-allowed-${Date.now()}`,
+    boundaryPolicy: { spatial: false, horizon: false },
+  };
+  await editor.fill(JSON.stringify(config));
+  const response = page.waitForResponse(
+    (r) => r.url().endsWith("/api/runs") && r.request().method() === "POST",
+  );
+  await dialog
+    .getByRole("button", { name: "Create paused", exact: true })
+    .click();
+  const created = await response;
+  expect(created.status()).toBe(201);
+  const allowed = (await created.json()) as RunDetail;
+  createdIds.add(allowed.summary.id);
+  expect(allowed.config.boundaryPolicy).toEqual({
+    spatial: false,
+    horizon: false,
+  });
+  const qualified = await step(page, request, allowed.summary.id);
+  expect(qualified.snapshot!.champion.fitness).toBe(14 / 15);
+  expect(qualified.snapshot!.champion.disqualified).toBe(false);
+  await expect(reason).toContainText("left at t=3");
+  await expect(reason).not.toContainText("disqualified");
+  await screenArtifact(page, testInfo, "boundary-settings");
+});
 
 test("the default finite-longevity run uses deep scale and previews its full 2,048-timestep horizon", async ({
   page,
@@ -425,7 +500,7 @@ test("downloaded checkpoints and UI forks retain exact population, RNG and deter
   expect(exported.checkpoint).toMatchObject({
     format: "polyp-research-checkpoint",
     version: 1,
-    modelVersion: "ca-moore-research-v2",
+    modelVersion: "ca-moore-research-v3",
     sourceRunId: original.summary.id,
   });
   expect(exported.checkpoint.state?.population).toHaveLength(8);

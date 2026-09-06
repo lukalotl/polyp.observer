@@ -656,68 +656,90 @@ test("binary and sixteen-state jobs evaluate, preview, export, import and contin
   });
 });
 
-test("legacy five-state checkpoint imports and on-disk archives migrate without changing the scientific continuation", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "polyp-state-migration-"));
-  let server = await startResearchServer({
-    port: 0,
-    host: "127.0.0.1",
-    dataDir: dir,
-  });
-  try {
-    const cfg = base();
-    const created = await api(server.port, "runs", { config: cfg });
-    const id = created.summary.id;
-    for (let generation = 0; generation <= 2; generation++) {
-      await api(server.port, `runs/${id}/actions`, { action: "step" });
-      await state(server.port, id, "paused", generation);
-    }
-    const before = await api(server.port, `runs/${id}/checkpoint`);
-    const asLegacy = (checkpoint: any) => {
-      checkpoint.modelVersion = "ca5-moore-research-v1";
-      delete checkpoint.config.stateCount;
-      if (checkpoint.state) {
-        checkpoint.state.modelVersion = "ca5-moore-research-v1";
-        delete checkpoint.state.config.stateCount;
-      }
-      return checkpoint;
-    };
-    const legacy = asLegacy(structuredClone(before));
-    const imported = await api(server.port, "runs/import", {
-      checkpoint: legacy,
-    });
-    assert.deepEqual(
-      (await api(server.port, `runs/${imported.summary.id}/checkpoint`)).state,
-      before.state,
-    );
-    await server.close();
-    const file = join(dir, id + ".json"),
-      stored = JSON.parse(await readFile(file, "utf8"));
-    asLegacy(stored.checkpoint);
-    assert.ok(stored.archives.length >= 2);
-    await writeFile(file, JSON.stringify(stored));
-    server = await startResearchServer({
+for (const version of ["ca5-moore-research-v1", "ca-moore-research-v2"])
+  test(`${version} checkpoint imports and on-disk archives preserve scientific continuation`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), "polyp-state-migration-"));
+    let server = await startResearchServer({
       port: 0,
       host: "127.0.0.1",
       dataDir: dir,
     });
-    assert.deepEqual(
-      (await api(server.port, `runs/${id}/checkpoint`)).state,
-      before.state,
-    );
-    const historic = await api(server.port, `runs/${id}/generations/0`);
-    assert.deepEqual(
-      historic,
-      generationSnapshot(await initializePopulation(cfg)),
-    );
-    await api(server.port, `runs/${id}/actions`, { action: "step" });
-    const continued = await state(server.port, id, "paused", 3);
-    assert.deepEqual(
-      continued.snapshot,
-      generationSnapshot(await advanceGeneration(before.state)),
-    );
-    assert.deepEqual((await api(server.port, "health")).recoveryErrors, []);
-  } finally {
-    await server.close();
-    await rm(dir, { recursive: true, force: true });
-  }
-});
+    try {
+      const cfg = base({ boundaryPolicy: { spatial: false, horizon: false } });
+      const created = await api(server.port, "runs", { config: cfg });
+      const id = created.summary.id;
+      for (let generation = 0; generation <= 2; generation++) {
+        await api(server.port, `runs/${id}/actions`, { action: "step" });
+        await state(server.port, id, "paused", generation);
+      }
+      const before = await api(server.port, `runs/${id}/checkpoint`);
+      const stripEvaluation = (item: any) => {
+        delete item.disqualified;
+        delete item.validationDisqualified;
+      };
+      const stripConfig = (config: any) => {
+        delete config.boundaryPolicy;
+        if (version === "ca5-moore-research-v1") delete config.stateCount;
+      };
+      const asLegacy = (checkpoint: any) => {
+        checkpoint.modelVersion = version;
+        stripConfig(checkpoint.config);
+        checkpoint.improvements.forEach((point: any) =>
+          stripEvaluation(point.individual),
+        );
+        if (checkpoint.state) {
+          checkpoint.state.modelVersion = version;
+          stripConfig(checkpoint.state.config);
+          checkpoint.state.population.forEach(stripEvaluation);
+          stripEvaluation(checkpoint.state.champion);
+          checkpoint.state.cache.forEach((entry: any) =>
+            stripEvaluation(entry.evaluation),
+          );
+        }
+        return checkpoint;
+      };
+      const legacy = asLegacy(structuredClone(before));
+      const imported = await api(server.port, "runs/import", {
+        checkpoint: legacy,
+      });
+      assert.deepEqual(
+        (await api(server.port, `runs/${imported.summary.id}/checkpoint`))
+          .state,
+        before.state,
+      );
+      await server.close();
+      const file = join(dir, id + ".json"),
+        stored = JSON.parse(await readFile(file, "utf8"));
+      asLegacy(stored.checkpoint);
+      assert.ok(stored.archives.length >= 2);
+      for (const archive of stored.archives) {
+        archive.snapshot.population.forEach(stripEvaluation);
+        stripEvaluation(archive.snapshot.champion);
+      }
+      await writeFile(file, JSON.stringify(stored));
+      server = await startResearchServer({
+        port: 0,
+        host: "127.0.0.1",
+        dataDir: dir,
+      });
+      assert.deepEqual(
+        (await api(server.port, `runs/${id}/checkpoint`)).state,
+        before.state,
+      );
+      const historic = await api(server.port, `runs/${id}/generations/0`);
+      assert.deepEqual(
+        historic,
+        generationSnapshot(await initializePopulation(cfg)),
+      );
+      await api(server.port, `runs/${id}/actions`, { action: "step" });
+      const continued = await state(server.port, id, "paused", 3);
+      assert.deepEqual(
+        continued.snapshot,
+        generationSnapshot(await advanceGeneration(before.state)),
+      );
+      assert.deepEqual((await api(server.port, "health")).recoveryErrors, []);
+    } finally {
+      await server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });

@@ -20,6 +20,8 @@ const individual = (id: string, genome: number[], fitness = 0): Individual => ({
   parents: [],
   crossoverMask: [],
   mutatedLoci: [],
+  disqualified: false,
+  validationDisqualified: false,
   trainingScores: [],
   validationScores: [],
   metrics: {
