@@ -287,6 +287,7 @@ export default function App() {
         seedGenome: [
           ...(detail.snapshot?.champion.genome ?? detail.config.seedGenome),
         ],
+        initialization: "mutants",
       },
       "New variant from champion",
     );

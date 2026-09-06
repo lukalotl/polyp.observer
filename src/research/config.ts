@@ -10,7 +10,7 @@ export const DEFAULT_RUN_CONFIG: RunConfig = {
   seed: "cross",
   trainingSeeds: [1729],
   validationSeeds: [],
-  objective: "complexity",
+  objective: "longevity",
   aggregation: "mean",
   weights: { diversity: 0.34, activity: 0.3, density: 0.24, variation: 0.12 },
   seedGenome: PRESETS[0].genome.slice(),

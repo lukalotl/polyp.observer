@@ -19,7 +19,7 @@ describe("pinned, bounded research configuration", () => {
       seed: "cross",
       trainingSeeds: [1729],
       validationSeeds: [],
-      objective: "complexity",
+      objective: "longevity",
       aggregation: "mean",
       weights: {
         diversity: 0.34,

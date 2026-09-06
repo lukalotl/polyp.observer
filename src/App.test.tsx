@@ -89,6 +89,28 @@ async function submit(name = "Create paused") {
 }
 
 describe("complete, immutable run configuration", () => {
+  it("submits larger grids and deep scale presets through the real configuration dialog", async () => {
+    const { onCreate } = dialog();
+    field("Grid size", 513);
+    field("CA horizon", 2048);
+    await submit();
+    expect(onCreate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ size: 513, steps: 2048 }),
+      false,
+    );
+    field("Simulation scale", "long");
+    expect(screen.getByLabelText("Grid size", { exact: true })).toHaveValue(
+      127,
+    );
+    expect(screen.getByLabelText("CA horizon", { exact: true })).toHaveValue(
+      65_536,
+    );
+    await submit();
+    expect(onCreate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ size: 127, steps: 65_536 }),
+      false,
+    );
+  });
   it("edits every configuration family and sends exact scientific parameters once, without modifying its source", async () => {
     const initial = smallConfig();
     const original = structuredClone(initial);
@@ -615,12 +637,15 @@ describe("API-backed research workbench", () => {
     unmount();
     expect(http.mutations).toHaveLength(before);
   });
-  it("displays immutable configuration and opens an explicit champion-derived variant instead of mutating a job", async () => {
-    await mountApp();
+  it("displays immutable configuration and seeds a variant from the champion even after random initialization", async () => {
+    const source = (
+      await researchFixture("random-source", 2, { initialization: "random" })
+    ).detail;
+    await mountApp(source);
     fireEvent.click(screen.getByRole("tab", { name: "Parameters" }));
     expect(
       JSON.parse(screen.getByLabelText("Run configuration").textContent!),
-    ).toEqual(fixture.detail.config);
+    ).toEqual(source.config);
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
     const posts = http.mutations.length;
     fireEvent.click(
@@ -630,7 +655,7 @@ describe("API-backed research workbench", () => {
       name: "New variant from champion",
     });
     expect(within(configDialog).getByLabelText("Run name")).toHaveValue(
-      `${fixture.detail.config.name} · variant`,
+      `${source.config.name} · variant`,
     );
     fireEvent.click(
       within(configDialog).getByRole("button", {
@@ -645,9 +670,10 @@ describe("API-backed research workbench", () => {
       ).value,
     );
     expect(config).toEqual({
-      ...fixture.detail.config,
-      name: `${fixture.detail.config.name} · variant`,
-      seedGenome: fixture.state.champion.genome,
+      ...source.config,
+      name: `${source.config.name} · variant`,
+      seedGenome: source.snapshot!.champion.genome,
+      initialization: "mutants",
     });
     fireEvent.click(
       within(configDialog).getByRole("button", {

@@ -16,6 +16,7 @@ const config = (updates: Partial<RunConfig> = {}): RunConfig => ({
   ...structuredClone(DEFAULT_RUN_CONFIG),
   size: 17,
   steps: 24,
+  objective: "complexity",
   ...updates,
 });
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
@@ -44,6 +45,19 @@ function referenceMetrics(
 }
 
 describe("streaming scalar evaluator versus frozen space-time golden engine", () => {
+  it("defaults to longer observed finite lives and gives censored survivors zero", () => {
+    const cfg = { ...DEFAULT_RUN_CONFIG, seed: "point" as const };
+    const short = Array<number>(45).fill(0);
+    const longer = short.slice();
+    longer[9] = 2;
+    longer[18] = 3;
+    longer[27] = 4;
+    const survivor = short.slice();
+    survivor[9] = 1;
+    expect(evaluateGenome(short, cfg).fitness).toBe(1 / 2047);
+    expect(evaluateGenome(longer, cfg).fitness).toBe(4 / 2047);
+    expect(evaluateGenome(survivor, cfg).fitness).toBe(0);
+  });
   it.each<Objective>(["complexity", "longevity", "growth"])(
     "matches randomized fixtures, all seed forms and boundary-reaching trajectories for %s within 1e-10",
     (objective) => {

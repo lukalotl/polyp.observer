@@ -29,6 +29,16 @@ startup/recovery, and deployment boundaries.
 
 ## Workbench
 
+- **Simulation scale**: new runs use 129×129 cells over 2,048 CA timesteps.
+  Quick, Deep, Wide and Long presets are available, plus custom grids up to
+  1,025×1,025 and horizons up to 65,536. A combined budget of 1,073,741,824
+  cell-timesteps per fixture means both maxima cannot be combined. The dialog
+  shows the maximum horizon for the chosen grid. Larger experiments take longer
+  per generation; the genetic generation limit is separate.
+- **Default objective: finite longevity.** Fitness is lifetime / (horizon − 1)
+  only when extinction is observed; a rule still alive at the cutoff scores zero.
+  Complexity and Growth remain selectable. Existing runs retain their recorded
+  objective; changing it requires a new experiment.
 - **New run**: parameter fields or complete JSON configuration. Population,
   elitism, tournament/rank selection, crossover type/probability, per-locus
   mutation, immigrants, initialization, search RNG, fixture seeds, scoring
@@ -61,6 +71,13 @@ startup/recovery, and deployment boundaries.
 Run registry, metrics and analysis panels are hideable. No marketing panels or
 separate demonstration mode. Space starts/pauses the selected run; Escape exits
 focus/options. Training and CA timesteps are explicitly separate.
+
+To deepen existing research, open **Parameters → New variant from champion**,
+then choose a simulation scale. The champion seeds a newly evaluated population;
+the source run keeps its original configuration and scores. A near-1 complexity
+score saturates a bounded heuristic, not proof that an organism has reached an
+intrinsic maximum depth. Larger horizons and grids change the experiment; they
+do not guarantee open-ended fitness improvement.
 
 ## Long-running experiments
 
@@ -101,7 +118,7 @@ A single-thread, uncached mixed-rule benchmark on this VM measured roughly
 **279 vs 242 fixture evaluations/s** at 49×49×96, and **50 vs 35/s** at
 97×97×192, relative to the legacy full-history evaluator. Those are measurements
 for those fixtures, not universal speed claims. Live typed-array payloads were
-5,970 vs 235,698 bytes for the default case (excluding JavaScript objects, process
+5,970 vs 235,698 bytes for the original 49×49×96 case (excluding JavaScript objects, process
 RSS, population/cache memory). Run it yourself:
 
 ```sh

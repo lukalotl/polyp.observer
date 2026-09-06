@@ -143,7 +143,7 @@ cannot claim as committed search work.
 ## Validation and bounds
 
 Odd size 9..1025; steps 8..65536; size²×steps ≤1,073,741,824; population 8..512;
-new-run defaults are size 129 and 2048 timesteps. The work bound is separate from
+new-run defaults are size 129, 2048 timesteps and the finite-longevity objective. The work bound is separate from
 the streaming memory bound: both per-axis maxima cannot be used together.
 
 Elites 0..population−1; tournament 2..min(32,population); mutation/crossover rates

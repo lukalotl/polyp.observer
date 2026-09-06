@@ -398,6 +398,7 @@ describe("selection, neutral diversity, validation and scientific metrics", () =
   });
   it("finds a reproducible strict improvement through the real CA pipeline", async () => {
     const cfg = config({
+      objective: "complexity",
       size: 17,
       steps: 20,
       populationSize: 24,

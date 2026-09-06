@@ -63,7 +63,11 @@ try {
     { label: "original-cross", size: 49, steps: 96, seed: "cross" },
     { label: "larger-islands", size: 97, steps: 192, seed: "islands" },
   ]) {
-    const config = { ...structuredClone(DEFAULT_RUN_CONFIG), ...workload };
+    const config = {
+      ...structuredClone(DEFAULT_RUN_CONFIG),
+      objective: "complexity",
+      ...workload,
+    };
     delete config.label;
     const methods = {
       legacyVolume: (genome) =>
@@ -112,6 +116,7 @@ try {
   // Keep the original benchmark comparable after increasing new-run defaults.
   const config = {
     ...structuredClone(DEFAULT_RUN_CONFIG),
+    objective: "complexity",
     size: 49,
     steps: 96,
     populationSize: 64,

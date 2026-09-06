@@ -227,6 +227,65 @@ async function screenArtifact(page: Page, testInfo: TestInfo, name: string) {
   await testInfo.attach(name, { path, contentType: "image/png" });
 }
 
+test("the default finite-longevity run uses deep scale and previews its full 2,048-timestep horizon", async ({
+  page,
+}, testInfo) => {
+  await page
+    .getByRole("button", { name: "New run", exact: true })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog", { name: "New run", exact: true });
+  await expect(
+    dialog.getByRole("spinbutton", { name: "Grid size", exact: true }),
+  ).toHaveValue("129");
+  await expect(
+    dialog.getByRole("spinbutton", { name: "CA horizon", exact: true }),
+  ).toHaveValue("2048");
+  await expect(
+    dialog.getByRole("combobox", { name: "Simulation scale" }),
+  ).toHaveValue("deep");
+  await expect(
+    dialog.getByRole("combobox", { name: "Objective", exact: true }),
+  ).toHaveValue("longevity");
+  await expect(dialog).toContainText("Still alive at the cutoff scores zero");
+  await dialog
+    .getByRole("textbox", { name: "Run name", exact: true })
+    .fill(`e2e-default-depth-${Date.now()}`);
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/runs") &&
+      response.request().method() === "POST",
+  );
+  const previewed = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/preview") &&
+      response.request().method() === "POST",
+  );
+  await dialog
+    .getByRole("button", { name: "Create paused", exact: true })
+    .click();
+  const response = await created;
+  expect(response.ok()).toBe(true);
+  const run = (await response.json()) as RunDetail;
+  createdIds.add(run.summary.id);
+  expect(run.config).toMatchObject({
+    size: 129,
+    steps: 2048,
+    objective: "longevity",
+  });
+  expect(run.summary).toMatchObject({ status: "paused", generation: -1 });
+  const frameResponse = await previewed;
+  expect(frameResponse.ok()).toBe(true);
+  const frame = await frameResponse.json();
+  expect(frame.totalSteps).toBe(2048);
+  expect(frame.layerTimes.at(-1)).toBe(2047);
+  await expect(
+    page.getByRole("region", { name: "Champion inspector" }),
+  ).toContainText("2047 / 2047");
+  await expect(dialog).not.toBeVisible();
+  await screenArtifact(page, testInfo, "default-deep-preview");
+});
+
 test("a VM population continues while its only browser is closed, restores, pauses and steps exactly once", async ({
   page,
   context,

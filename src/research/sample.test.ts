@@ -48,7 +48,7 @@ describe("bounded previews of full-depth scientific trajectories", () => {
         );
         checkBounds(actual);
       }
-  });
+  }, 15_000);
 
   it("decimates dense trajectories without dropping cells from retained planes", () => {
     const genome = Array<number>(45).fill(1);

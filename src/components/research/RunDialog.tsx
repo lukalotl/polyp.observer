@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Code2, SlidersHorizontal, X } from "lucide-react";
 import { PRESETS, genomeId } from "../../simulation";
 import { validateRunConfig } from "../../research/config";
+import {
+  MAX_GRID_SIZE,
+  SIMULATION_SCALES,
+  maxHorizon,
+} from "../../research/limits";
 import type { RunConfig } from "../../research/types";
 import { trapDialogTab } from "../../dialogFocus";
 import RuleEditor from "../RuleEditor";
@@ -184,15 +189,54 @@ export default function RunDialog({
             <div className="config-grid">
               <fieldset>
                 <legend>Evaluation</legend>
-                {numeric("size", "Grid size", 9, 129, 2)}
+                <label className="config-field">
+                  <span>Simulation scale</span>
+                  <select
+                    aria-label="Simulation scale"
+                    value={
+                      SIMULATION_SCALES.find(
+                        (scale) =>
+                          scale.size === draft.size &&
+                          scale.steps === draft.steps,
+                      )?.id ?? "custom"
+                    }
+                    onChange={(event) => {
+                      const scale = SIMULATION_SCALES.find(
+                        (value) => value.id === event.target.value,
+                      );
+                      if (scale)
+                        setDraft((current) => ({
+                          ...current,
+                          size: scale.size,
+                          steps: scale.steps,
+                        }));
+                    }}
+                  >
+                    <option value="custom" disabled>
+                      Custom
+                    </option>
+                    {SIMULATION_SCALES.map((scale) => (
+                      <option key={scale.id} value={scale.id}>
+                        {scale.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {numeric("size", "Grid size", 9, MAX_GRID_SIZE, 2)}
                 {numeric(
                   "steps",
                   "CA horizon",
                   8,
-                  1024,
+                  maxHorizon(draft.size),
                   1,
                   "CA timesteps per evaluation, not GA generations.",
                 )}
+                <p className="config-note">
+                  Up to {maxHorizon(draft.size).toLocaleString("en-US")}{" "}
+                  timesteps at this grid size. Larger grids and longer horizons
+                  increase evaluation time. The preview samples time; fitness
+                  evaluates the full horizon.
+                </p>
                 <label className="config-field">
                   <span>Seed pattern</span>
                   <select
@@ -242,11 +286,18 @@ export default function RunDialog({
                       )
                     }
                   >
-                    <option value="complexity">Complexity heuristic</option>
                     <option value="longevity">Finite longevity</option>
+                    <option value="complexity">Complexity heuristic</option>
                     <option value="growth">Growth</option>
                   </select>
                 </label>
+                {draft.objective === "longevity" && (
+                  <p className="config-note">
+                    Rewards the longest lifetime that ends within the horizon.
+                    Still alive at the cutoff scores zero; increase the horizon
+                    to observe longer finite lifetimes.
+                  </p>
+                )}
                 <label className="config-field">
                   <span>Aggregation</span>
                   <select
