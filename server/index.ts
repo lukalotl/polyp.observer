@@ -76,6 +76,7 @@ export interface ServerOptions extends Partial<ManagerOptions> {
   host?: string;
   distDir?: string;
   publicOrigin?: string;
+  publicOrigins?: readonly string[];
   heartbeatMs?: number;
   apiUpstream?: string;
 }
@@ -216,6 +217,8 @@ export async function startResearchServer(options: ServerOptions = {}) {
       const aliases = workspaceOrigins(actualPort());
       const explicit = options.publicOrigin ?? process.env.PUBLIC_ORIGIN;
       if (explicit) aliases.add(explicit);
+      for (const allowed of options.publicOrigins ?? (process.env.PUBLIC_ORIGINS ?? "").split(","))
+        if (allowed.trim()) aliases.add(allowed.trim());
       // Do not trust arbitrary X-Forwarded-Host. Known gateway aliases are exact.
       return parsed.host === req.headers.host || aliases.has(origin);
     } catch {

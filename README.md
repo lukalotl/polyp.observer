@@ -27,6 +27,9 @@ run directory**. `--port`, `--host`, `API_PORT`, and `CLIENT_PORT` are supported
 See [server operations](server/README.md) for proxy mode, CPU budgets, storage,
 startup/recovery, and deployment boundaries.
 
+The public website uses Vercel plus a persistent VM backend. See
+[polyp.observer deployment](docs/deployment.md) for its domains, routing and startup.
+
 ## Workbench
 
 - **State count**: choose 2–16 in New run or New variant; 0 is empty. Binary
