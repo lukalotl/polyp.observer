@@ -11,7 +11,11 @@ import { OrbitControls } from "@react-three/drei";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import TechnicalStage from "../rendering/TechnicalStage";
-import { fitVolumeCamera } from "../rendering/cameraFit";
+import {
+  fitVolumeCamera,
+  type VolumeFitMode,
+  type VolumeView,
+} from "../rendering/cameraFit";
 import {
   instanceColors,
   makePointMaterial,
@@ -23,6 +27,7 @@ import {
   PackedVolume,
   visibleCount,
   VolumeSimulation,
+  VolumeBounds,
 } from "../rendering/volumeData";
 
 export interface VolumeProps {
@@ -34,6 +39,9 @@ export interface VolumeProps {
   autoRotate: boolean;
   resetKey: number;
   annotations?: boolean;
+  fitMode?: VolumeFitMode;
+  view?: VolumeView;
+  /** Sampled array index, not the actual CA time in simulation.layerTimes. */
   onLayerSelect?: (layer: number) => void;
 }
 
@@ -58,20 +66,27 @@ function CameraRig({
   autoRotate,
   resetKey,
   annotations,
+  fitMode,
+  view,
+  occupiedBounds,
 }: {
   latticeSize: number;
   layers: number;
   autoRotate: boolean;
   resetKey: number;
   annotations: boolean;
+  fitMode: VolumeFitMode;
+  view: VolumeView;
+  occupiedBounds: VolumeBounds | null;
 }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera, size, invalidate } = useThree();
   const previousFit = useRef<{
     zoom: number;
     resetKey: number;
-    latticeSize: number;
-    layers: number;
+    fitMode: VolumeFitMode;
+    view: VolumeView;
+    target: THREE.Vector3;
   }>();
   useLayoutEffect(() => {
     const orbit = controls.current;
@@ -88,14 +103,18 @@ function CameraRig({
       width: size.width,
       height: size.height,
       annotations,
+      fitMode,
+      view,
+      occupiedBounds,
     });
     const previous = previousFit.current;
     if (
       !previous ||
       previous.resetKey !== resetKey ||
-      previous.latticeSize !== latticeSize ||
-      previous.layers !== layers
+      previous.fitMode !== fitMode ||
+      previous.view !== view
     ) {
+      camera.up.set(0, view === "top" ? 0 : 1, view === "top" ? -1 : 0);
       camera.position.copy(fit.position);
       camera.quaternion.copy(fit.quaternion);
       camera.zoom = fit.zoom;
@@ -103,10 +122,20 @@ function CameraRig({
       orbit.update();
       orbit.saveState();
     } else {
-      // Keep the user's orbit/pan and relative zoom through resizes and annotation toggles.
+      // Preserve orbit, relative pan and relative zoom through resizes and evolving bounds.
+      const shift = fit.target.clone().sub(previous.target);
+      camera.position.add(shift);
+      orbit.target.add(shift);
       camera.zoom *= fit.zoom / previous.zoom;
+      orbit.update();
     }
-    previousFit.current = { zoom: fit.zoom, resetKey, latticeSize, layers };
+    previousFit.current = {
+      zoom: fit.zoom,
+      resetKey,
+      fitMode,
+      view,
+      target: fit.target.clone(),
+    };
     orbit.minZoom = fit.zoom * 0.48;
     orbit.maxZoom = fit.zoom * 5;
     camera.updateProjectionMatrix();
@@ -117,6 +146,9 @@ function CameraRig({
     invalidate,
     latticeSize,
     layers,
+    fitMode,
+    view,
+    occupiedBounds,
     resetKey,
     size.height,
     size.width,
@@ -135,8 +167,8 @@ function CameraRig({
       rotateSpeed={0.55}
       zoomSpeed={0.8}
       panSpeed={0.75}
-      minPolarAngle={0.12}
-      maxPolarAngle={Math.PI * 0.49}
+      minPolarAngle={0}
+      maxPolarAngle={Math.PI}
       autoRotate={autoRotate}
       autoRotateSpeed={0.5}
     />
@@ -278,6 +310,8 @@ function Scene({
   autoRotate,
   resetKey,
   annotations = false,
+  fitMode = "world",
+  view = "iso",
   onLayerSelect,
 }: VolumeProps) {
   const data = useMemo(() => packVolume(simulation), [simulation]);
@@ -306,6 +340,9 @@ function Scene({
         size={simulation.size}
         layers={simulation.layers.length}
         annotations={annotations}
+        layerTimes={simulation.layerTimes}
+        occupiedBounds={fitMode === "specimen" ? data.bounds : null}
+        specimen={fitMode === "specimen"}
       />
       {mode === "voxels" ? (
         <VoxelObject {...props} />
@@ -318,6 +355,9 @@ function Scene({
         autoRotate={autoRotate}
         resetKey={resetKey}
         annotations={annotations}
+        fitMode={fitMode}
+        view={view}
+        occupiedBounds={data.bounds}
       />
     </>
   );

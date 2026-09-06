@@ -6,107 +6,55 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
-import type { VolumeProps } from "./components/Volume";
-import { STORAGE_KEY, type Experiment } from "./experiment";
-import { genomeId, PRESETS, simulate, type Simulation } from "./simulation";
 import {
-  ControlledSocket,
-  savedStudy,
-  snapshotFor,
-} from "./test/controlledSocket";
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import App from "./App";
+import RunDialog from "./components/research/RunDialog";
+import type { VolumeProps } from "./components/Volume";
+import type { RunConfig } from "./research/types";
+import { PRESETS } from "./simulation";
+import {
+  changed,
+  installDialog,
+  installResearchNetwork,
+  previewFor,
+  researchFixture,
+  ResearchSocket,
+  runList,
+  smallConfig,
+  type ControlledHttp,
+} from "./test/researchFixtures";
 
-// Only WebGL and the network boundary are doubles. App, its WebSocket hook,
-// rule editor, persistence, diagnostics, and decoded scientific data are real.
+// App, HTTP serialization, observer hook, dialogs and visualizers are real.
+// Only the WebGL boundary is replaced; test fixture CA computation stays here.
 const viewport = vi.hoisted(() => ({ render: vi.fn() }));
 vi.mock("./components/Volume", () => ({
   default: (props: VolumeProps) => {
     viewport.render(props);
     return (
-      <button onClick={() => props.onLayerSelect?.(7)}>
-        Inspect rendered layer seven
+      <button onClick={() => props.onLayerSelect?.(3)}>
+        Inspect rendered layer three
       </button>
     );
   },
 }));
-
-function currentExperiment(): Experiment {
-  return JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-}
-function volumeProps(): VolumeProps & { simulation: Simulation } {
-  return viewport.render.mock.calls.at(-1)![0];
-}
-function settleEdits() {
-  act(() => vi.advanceTimersByTime(180));
-}
-function timeSlider() {
-  return screen.getByRole("slider", { name: "Visible time layer" });
-}
-function controls() {
-  fireEvent.click(screen.getByRole("button", { name: "Toggle controls" }));
-}
-function diagnostics() {
-  fireEvent.click(screen.getByRole("button", { name: "Toggle diagnostics" }));
-  return screen.getByRole("complementary", { name: "Diagnostics" });
-}
-function metric(name: string): string | null {
-  return within(
-    screen.getByRole("complementary", { name: "Diagnostics" }),
-  ).getByText(name, { selector: "dt" }).nextElementSibling!.textContent;
-}
-function uploadFile(text: string, bytes?: number) {
-  const file = new File([text], "study.json", { type: "application/json" });
-  // jsdom omits File.text, but the same asynchronous browser contract is used.
-  Object.defineProperty(file, "text", {
-    value: vi.fn().mockResolvedValue(text),
-  });
-  if (bytes !== undefined)
-    Object.defineProperty(file, "size", { value: bytes });
-  return file;
-}
-async function importFile(file?: File) {
-  await act(async () => {
-    fireEvent.change(screen.getByLabelText("Import experiment file"), {
-      target: { files: file ? [file] : [] },
-    });
-  });
-}
-function mountApp(initial?: Experiment | string, ready = true) {
-  if (initial !== undefined)
-    localStorage.setItem(
-      STORAGE_KEY,
-      typeof initial === "string" ? initial : JSON.stringify(initial),
-    );
-  const view = render(<App />);
-  const socket = ControlledSocket.instances.at(-1)!;
-  if (ready) {
-    socket.ready();
-    socket.respond();
-  }
-  return { ...view, socket };
-}
-
+let http: ControlledHttp;
+let fixture: Awaited<ReturnType<typeof researchFixture>>;
+beforeAll(async () => {
+  fixture = await researchFixture("run-a", 2, { mutationRate: 0.3 });
+});
 beforeEach(() => {
-  vi.useFakeTimers();
   localStorage.clear();
   viewport.render.mockClear();
-  ControlledSocket.reset();
-  vi.stubGlobal("WebSocket", ControlledSocket);
-  Object.defineProperties(HTMLDialogElement.prototype, {
-    showModal: {
-      configurable: true,
-      value: vi.fn(function (this: HTMLDialogElement) {
-        this.open = true;
-      }),
-    },
-    close: {
-      configurable: true,
-      value: vi.fn(function (this: HTMLDialogElement) {
-        this.open = false;
-      }),
-    },
-  });
+  http = installResearchNetwork();
+  installDialog();
 });
 afterEach(() => {
   cleanup();
@@ -115,642 +63,686 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("the minimal VM-backed workbench", () => {
-  it("starts with a full viewport, a small toolbar and optional timeline, not decorative content or statistics", () => {
-    const { socket } = mountApp(undefined, false);
-    expect(
-      screen.getByRole("main", { name: "Cellular automaton spacetime" }),
-    ).toBeVisible();
-    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
-    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(
-        /Small rules|Collection|Occupied \/ layer|Fitness|Lifetime|State diversity/i,
-      ),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Toggle controls" }),
-    ).toHaveAttribute("aria-expanded", "false");
-    expect(
-      screen.getByRole("button", { name: "Toggle diagnostics" }),
-    ).toHaveAttribute("aria-expanded", "false");
-    expect(
-      screen.getByRole("button", { name: "Run evolution" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Step evolution" }),
-    ).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Edit rule" })).toBeDisabled();
-    expect(timeSlider()).toBeDisabled();
-    expect(viewport.render).not.toHaveBeenCalled();
-    socket.ready();
-    expect(screen.getByRole("status", { name: "VM connected" })).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "Run evolution" }),
-    ).toBeDisabled();
-    expect(socket.request.type).toBe("evaluate");
-    socket.respond();
-    expect(currentExperiment()).toEqual({
-      version: 1,
-      name: "Dendrite",
-      genome: PRESETS[0].genome,
-      config: { size: 41, steps: 48, seed: "cross", randomSeed: 1729 },
-    });
-    expect(volumeProps()).toMatchObject({
-      simulation: simulate(PRESETS[0].genome, currentExperiment().config),
-      visibleLayers: 48,
-      annotations: false,
-      autoRotate: false,
-    });
-    expect(screen.getByRole("button", { name: "Run evolution" })).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: "Step evolution" }),
-    ).toBeEnabled();
+function field(label: string, value: string | number) {
+  fireEvent.change(screen.getByLabelText(label, { exact: true }), {
+    target: { value: String(value) },
   });
-
-  it("opens one drawer at a time and derives hidden diagnostics from the accepted VM snapshot", () => {
-    const { socket } = mountApp(savedStudy());
-    controls();
-    expect(
-      screen.getByRole("complementary", { name: "Controls" }),
-    ).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "Objective" })).toHaveValue(
-      "complexity",
-    );
-    fireEvent.click(screen.getByText("Evolution", { selector: "summary" }));
-    expect(
-      screen.getByRole("combobox", { name: "Objective" }),
-    ).not.toBeVisible();
-    fireEvent.click(screen.getByText("Evolution", { selector: "summary" }));
-    expect(screen.getByRole("combobox", { name: "Objective" })).toBeVisible();
-    const panel = diagnostics();
-    expect(
-      screen.queryByRole("complementary", { name: "Controls" }),
-    ).not.toBeInTheDocument();
-    expect(metric("Execution")).toBe("VM / thread 7");
-    expect(metric("Epoch")).toBe("0");
-    expect(metric("Fitness")).toBe(
-      snapshotFor(socket.request).fitness.toFixed(5),
-    );
-    expect(metric("Rule")).toBe(genomeId(savedStudy().genome));
-    expect(metric("Activity")).toBe(
-      volumeProps().simulation.activity.toFixed(5),
-    );
-    expect(metric("State diversity")).toBe(
-      volumeProps().simulation.diversity.toFixed(5),
-    );
-    fireEvent.click(within(panel).getByRole("button", { name: "Close panel" }));
-    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Fitness", { selector: "dt" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it.each(PRESETS)(
-    "selects $name as a rule and seed while retaining the requested dimensions",
-    (preset) => {
-      const { socket } = mountApp(savedStudy());
-      controls();
-      fireEvent.change(screen.getByRole("combobox", { name: "Grid size" }), {
-        target: { value: "33" },
-      });
-      fireEvent.change(screen.getByRole("combobox", { name: "Time depth" }), {
-        target: { value: "32" },
-      });
-      fireEvent.change(screen.getByRole("combobox", { name: "Rule preset" }), {
-        target: { value: preset.id },
-      });
-      const expected = {
-        version: 1,
-        name: preset.name,
-        genome: preset.genome,
-        config: { size: 33, steps: 32, seed: preset.seed, randomSeed: 2024 },
-      };
-      expect(currentExperiment()).toEqual(expected);
-      settleEdits();
-      expect(socket.request).toMatchObject({
-        type: "evaluate",
-        genome: preset.genome,
-        config: expected.config,
-      });
-      socket.respond();
-      expect(volumeProps().simulation).toEqual(
-        simulate(preset.genome, expected.config),
-      );
-      expect(timeSlider()).toHaveValue("32");
-    },
+}
+function dialog(initial = smallConfig()) {
+  const onCreate = vi.fn().mockResolvedValue(undefined),
+    onClose = vi.fn();
+  const view = render(
+    <RunDialog
+      initial={initial}
+      maxWorkers={6}
+      busy={false}
+      onCreate={onCreate}
+      onClose={onClose}
+    />,
   );
-
-  it("restores an exact custom rule and seed instead of replacing it with a preset", () => {
-    const saved = {
-      ...savedStudy(),
-      config: { ...savedStudy().config, seed: "islands" as const },
-    };
-    const { socket } = mountApp(saved);
-    controls();
-    expect(currentExperiment()).toEqual(saved);
-    expect(socket.request).toMatchObject({
-      genome: saved.genome,
-      config: saved.config,
-    });
-    expect(screen.getByRole("combobox", { name: "Rule preset" })).toHaveValue(
-      "custom",
-    );
-    expect(
-      screen.getByRole("spinbutton", { name: "Initial seed" }),
-    ).toHaveValue(2024);
+  return { ...view, onCreate, onClose };
+}
+async function submit(name = "Create paused") {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name }));
   });
+}
 
-  it.each(["{", JSON.stringify({ ...savedStudy(), config: { size: 999999 } })])(
-    "recovers corrupt persisted state without leaving the VM unavailable: %s",
-    (raw) => {
-      mountApp(raw);
-      expect(currentExperiment().genome).toEqual(PRESETS[0].genome);
-      expect(
-        screen.getByRole("button", { name: "Run evolution" }),
-      ).toBeEnabled();
-    },
-  );
-
-  it("remains usable when browser persistence is blocked", () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new DOMException("Blocked", "SecurityError");
-    });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new DOMException("Full", "QuotaExceededError");
-    });
-    const { socket } = mountApp();
-    controls();
-    fireEvent.change(screen.getByRole("combobox", { name: "Rule preset" }), {
-      target: { value: "pagoda" },
-    });
-    settleEdits();
-    socket.respond();
-    expect(volumeProps().simulation).toEqual(
-      simulate(PRESETS[1].genome, socket.request.config),
-    );
-  });
-});
-
-describe("actual VM commands and revision isolation", () => {
-  it("sends Step, Start and Pause, receives epochs, and never accepts a late run result after pause", () => {
-    const { socket } = mountApp(savedStudy());
-    fireEvent.click(screen.getByRole("button", { name: "Step evolution" }));
-    expect(socket.request.type).toBe("step");
-    expect(
-      screen.getByRole("button", { name: "Run evolution" }),
-    ).toBeDisabled();
-    expect(timeSlider()).toBeDisabled();
-    const step = socket.respond();
-    diagnostics();
-    expect(metric("Epoch")).toBe("1");
-    expect(metric("Fitness")).toBe(step.fitness.toFixed(5));
-    expect(
-      screen.getByRole("img", {
-        name: "Best fitness across evolutionary epochs",
-      }),
-    ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Run evolution" }));
-    expect(socket.request).toMatchObject({
-      type: "start",
-      epoch: 1,
-      randomSeed: step.randomSeed,
-      genome: step.genome,
-    });
-    const pendingRun = snapshotFor(socket.request);
-    expect(
-      screen.getByRole("button", { name: "Step evolution" }),
-    ).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Play time" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Pause evolution" }));
-    expect(socket.latest.type).toBe("pause");
-    socket.reply(pendingRun);
-    expect(metric("Epoch")).toBe("1");
-    expect(currentExperiment().genome).toEqual(step.genome);
-    expect(screen.getByRole("button", { name: "Run evolution" })).toBeEnabled();
-    expect(timeSlider()).toBeEnabled();
-  });
-
-  it.each([
-    [
-      "seed pattern",
-      () =>
-        fireEvent.change(
-          screen.getByRole("combobox", { name: "Seed pattern" }),
-          { target: { value: "islands" } },
-        ),
-    ],
-    [
-      "initial seed",
-      () =>
-        fireEvent.change(
-          screen.getByRole("spinbutton", { name: "Initial seed" }),
-          { target: { value: "991" } },
-        ),
-    ],
-    [
-      "grid",
-      () =>
-        fireEvent.change(screen.getByRole("combobox", { name: "Grid size" }), {
-          target: { value: "33" },
-        }),
-    ],
-    [
-      "depth",
-      () =>
-        fireEvent.change(screen.getByRole("combobox", { name: "Time depth" }), {
-          target: { value: "32" },
-        }),
-    ],
-    [
-      "objective",
-      () =>
-        fireEvent.change(screen.getByRole("combobox", { name: "Objective" }), {
-          target: { value: "growth" },
-        }),
-    ],
-    [
-      "mutation",
-      () =>
-        fireEvent.change(
-          screen.getByRole("slider", { name: "Mutation rate" }),
-          { target: { value: ".2" } },
-        ),
-    ],
-    [
-      "search seed",
-      () =>
-        fireEvent.change(
-          screen.getByRole("spinbutton", { name: "Search seed" }),
-          { target: { value: "42" } },
-        ),
-    ],
-    [
-      "source",
-      () =>
-        fireEvent.change(
-          screen.getByRole("combobox", { name: "Rule preset" }),
-          { target: { value: "dendrite" } },
-        ),
-    ],
-    [
-      "reset",
-      () =>
-        fireEvent.click(screen.getByRole("button", { name: "Reset search" })),
-    ],
-  ] as const)(
-    "stops the previous run and rejects its late result when %s changes",
-    (_label, change) => {
-      const { socket } = mountApp(savedStudy());
-      fireEvent.click(screen.getByRole("button", { name: "Run evolution" }));
-      const stale = socket.respond();
-      controls();
-      change();
-      expect(socket.latest.type).toBe("pause");
-      const replacement = currentExperiment();
-      socket.reply({ ...stale, epoch: 899 });
-      expect(currentExperiment()).toEqual(replacement);
-      settleEdits();
-      expect(socket.request.type).toBe("evaluate");
-      expect(socket.request.id).toBeGreaterThan(stale.id);
-      expect(
-        screen.queryByRole("button", { name: "Pause evolution" }),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.getByRole("button", { name: "Run evolution" }),
-      ).toBeDisabled();
-      socket.reply({ ...stale, epoch: 900 });
-      socket.reply({ type: "error", id: stale.id, error: "old failure" });
-      expect(currentExperiment()).toEqual(replacement);
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      socket.respond();
-      diagnostics();
-      expect(metric("Epoch")).toBe("0");
-      expect(
-        screen.getByRole("button", { name: "Run evolution" }),
-      ).toBeEnabled();
-      expect(volumeProps().simulation).toEqual(
-        simulate(replacement.genome, replacement.config),
-      );
-    },
-  );
-
-  it("supports Space and period outside forms, and leaves native form/dialog keys alone", () => {
-    const { socket } = mountApp(savedStudy());
-    fireEvent.keyDown(document.body, { key: ".", code: "Period" });
-    expect(socket.request.type).toBe("step");
-    socket.respond();
-    fireEvent.keyDown(document.body, { key: " ", code: "Space" });
-    expect(socket.request.type).toBe("start");
-    socket.respond();
-    const sent = socket.commands.length;
-    fireEvent.keyDown(timeSlider(), { key: " ", code: "Space" });
-    expect(socket.commands).toHaveLength(sent);
-    fireEvent.keyDown(document.body, { key: " ", code: "Space" });
-    expect(socket.latest.type).toBe("pause");
-    fireEvent.click(screen.getByRole("button", { name: "Edit rule" }));
-    const beforeDialogKey = socket.commands.length;
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: " ", code: "Space" });
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: ".", code: "Period" });
-    expect(socket.commands).toHaveLength(beforeDialogKey);
-  });
-
-  it("surfaces worker errors, can dismiss/retry, and reconnects a failed transport", () => {
-    const { socket } = mountApp(savedStudy());
-    fireEvent.click(screen.getByRole("button", { name: "Run evolution" }));
-    socket.reply({
-      type: "error",
-      id: socket.request.id,
-      error: "Search budget exhausted.",
-    });
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Search budget exhausted.",
-    );
-    expect(currentExperiment()).toEqual(savedStudy());
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss error" }));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Step evolution" }));
-    socket.respond();
-    socket.disconnect();
-    expect(
-      screen.getByRole("button", { name: "Run evolution" }),
-    ).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
-    const next = ControlledSocket.instances.at(-1)!;
-    expect(socket.close).toHaveBeenCalledOnce();
-    expect(
-      screen.getByRole("button", { name: "Step evolution" }),
-    ).toBeDisabled();
-    next.ready();
-    next.respond();
-    expect(screen.getByRole("status", { name: "VM connected" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Run evolution" })).toBeEnabled();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-});
-
-describe("time and rendering are optional local views of accepted data", () => {
-  it("plays, pauses and stops at the last layer without requesting VM computation", () => {
-    const { socket, unmount } = mountApp(savedStudy());
-    vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Play time" }));
-    expect(timeSlider()).toHaveValue("1");
-    act(() => vi.advanceTimersByTime(130));
-    expect(volumeProps().visibleLayers).toBe(2);
-    fireEvent.click(screen.getByRole("button", { name: "Pause time" }));
-    act(() => vi.advanceTimersByTime(1000));
-    expect(timeSlider()).toHaveValue("2");
-    fireEvent.click(screen.getByRole("button", { name: "Play time" }));
-    act(() => vi.advanceTimersByTime(24 * 130));
-    expect(timeSlider()).toHaveValue("24");
-    expect(screen.getByRole("button", { name: "Play time" })).toBeVisible();
-    expect(vi.getTimerCount()).toBe(0);
-    expect(socket.commands).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Play time" }));
-    unmount();
-    expect(socket.close).toHaveBeenCalledOnce();
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("scrubs and selects a rendered layer while diagnostics report that exact layer's occupancy", () => {
-    mountApp(savedStudy());
-    diagnostics();
-    fireEvent.change(timeSlider(), { target: { value: "5" } });
-    expect(volumeProps().visibleLayers).toBe(5);
-    expect(metric("Occupied / layer")).toBe(
-      String(volumeProps().simulation.population[4]),
-    );
+describe("complete, immutable run configuration", () => {
+  it("edits every configuration family and sends exact scientific parameters once, without modifying its source", async () => {
+    const initial = smallConfig();
+    const original = structuredClone(initial);
+    const { onCreate, onClose } = dialog(initial);
+    field("Run name", "Held-out population");
+    field("Grid size", 25);
+    field("CA horizon", 32);
+    field("Seed pattern", "islands");
+    field("Training seeds", "11, 22");
+    field("Held-out seeds", "33, 44");
+    field("Objective", "complexity");
+    field("Aggregation", "minimum");
+    field("State entropy weight", 0.1);
+    field("Motion weight", 0.2);
+    field("Density weight", 0.3);
+    field("Variation weight", 0.4);
+    field("Population", 16);
+    field("Elites", 3);
+    field("Selection", "rank");
+    field("Tournament size", 5);
+    field("Crossover", "onePoint");
+    field("Crossover probability", 0.6);
+    field("Mutation probability", 0.125);
+    field("Immigrant fraction", 0.1);
+    field("Search RNG seed", -73);
+    field("Initialization", "random");
+    field("CPU workers", 3);
+    field("Generation limit", 20);
+    field("Checkpoint interval (s)", 5);
+    field("Archive every N generations", 4);
+    field("Retained populations", 12);
+    field("Evaluation cache entries", 512);
     fireEvent.click(
-      screen.getByRole("button", { name: "Inspect rendered layer seven" }),
-    );
-    expect(timeSlider()).toHaveValue("8");
-    expect(metric("Occupied / layer")).toBe(
-      String(volumeProps().simulation.population[7]),
-    );
-  });
-
-  it("hides timeline, changes view options and resets camera without modifying the experiment or asking the VM", () => {
-    const { socket } = mountApp(savedStudy());
-    const simulation = volumeProps().simulation;
-    controls();
-    fireEvent.click(screen.getByText("View", { selector: "summary" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Palette" }), {
-      target: { value: "ember" },
-    });
-    fireEvent.change(screen.getByRole("combobox", { name: "Rendering" }), {
-      target: { value: "points" },
-    });
-    for (const label of [
-      "Dither / grain",
-      "Rotate",
-      "Reference grid",
-      "Timeline",
-    ])
-      fireEvent.click(screen.getByRole("checkbox", { name: label }));
-    fireEvent.click(screen.getByRole("button", { name: "Reset camera" }));
-    expect(volumeProps()).toMatchObject({
-      mode: "points",
-      palette: "ember",
-      grain: false,
-      autoRotate: true,
-      annotations: true,
-      resetKey: 1,
-    });
-    expect(volumeProps().simulation).toBe(simulation);
-    expect(currentExperiment()).toEqual(savedStudy());
-    expect(socket.commands).toHaveLength(1);
-    expect(
-      screen.queryByRole("slider", { name: "Visible time layer" }),
-    ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Timeline" }));
-    expect(timeSlider()).toBeVisible();
-  });
-});
-
-describe("portable experiments and the compact rule draft", () => {
-  it("imports an exact experiment, stops an active run and ignores its stale result", async () => {
-    const { socket } = mountApp();
-    fireEvent.click(screen.getByRole("button", { name: "Run evolution" }));
-    const stale = snapshotFor(socket.request);
-    const imported = {
-      ...savedStudy(),
-      name: "<img src=x onerror=alert(1)> is a literal name",
-    };
-    await importFile(uploadFile(JSON.stringify(imported)));
-    expect(currentExperiment()).toEqual(imported);
-    expect(screen.getByLabelText("Import experiment file")).toHaveValue("");
-    expect(socket.latest.type).toBe("pause");
-    settleEdits();
-    expect(socket.request).toMatchObject({
-      type: "evaluate",
-      genome: imported.genome,
-      config: imported.config,
-      epoch: 0,
-    });
-    socket.reply(stale);
-    expect(currentExperiment()).toEqual(imported);
-    socket.respond();
-    expect(timeSlider()).toHaveValue("24");
-    expect(volumeProps().simulation).toEqual(
-      simulate(imported.genome, imported.config),
-    );
-    expect(
-      screen.queryByRole("img", { name: /literal name/ }),
-    ).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ["invalid JSON", "{", /JSON|Unexpected|Expected/i],
-    [
-      "unsupported version",
-      JSON.stringify({ ...savedStudy(), version: 2 }),
-      /valid 45-gene/,
-    ],
-    [
-      "invalid rule",
-      JSON.stringify({ ...savedStudy(), genome: Array(45).fill(5) }),
-      /valid 45-gene/,
-    ],
-    [
-      "unsupported config",
-      JSON.stringify({
-        ...savedStudy(),
-        config: { ...savedStudy().config, size: 500 },
+      screen.getByRole("checkbox", {
+        name: "Resume running jobs after server restart",
       }),
-      /settings are not supported/,
-    ],
+    );
+    expect(screen.getByText(/Configurations are immutable/)).toBeVisible();
+    expect(
+      screen.getByText(/CA timesteps per evaluation, not GA generations/),
+    ).toBeVisible();
+    await submit("Create & start");
+    const expected: RunConfig = {
+      ...original,
+      name: "Held-out population",
+      size: 25,
+      steps: 32,
+      seed: "islands",
+      trainingSeeds: [11, 22],
+      validationSeeds: [33, 44],
+      objective: "complexity",
+      aggregation: "minimum",
+      weights: { diversity: 0.1, activity: 0.2, density: 0.3, variation: 0.4 },
+      populationSize: 16,
+      eliteCount: 3,
+      selection: "rank",
+      tournamentSize: 5,
+      crossover: "onePoint",
+      crossoverRate: 0.6,
+      mutationRate: 0.125,
+      immigrantRate: 0.1,
+      randomSeed: -73,
+      initialization: "random",
+      evaluationWorkers: 3,
+      maxGenerations: 20,
+      checkpointSeconds: 5,
+      snapshotEvery: 4,
+      retainedSnapshots: 12,
+      cacheSize: 512,
+      resumeOnRestart: false,
+    };
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith(expected, true);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(initial).toEqual(original);
+  });
+  it("round-trips JSON and fields without silently changing hidden parameters or the founder genome", async () => {
+    const initial = smallConfig();
+    const { onCreate } = dialog(initial);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit configuration JSON" }),
+    );
+    const replacement = {
+      ...initial,
+      name: "JSON experiment",
+      seed: "islands",
+      objective: "growth",
+      aggregation: "minimum",
+      trainingSeeds: [12, 34],
+      validationSeeds: [56],
+      maxGenerations: 0,
+      seedGenome: [...PRESETS[2].genome],
+      mutationRate: 0.22,
+    };
+    field("Configuration JSON", JSON.stringify(replacement));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use parameter fields" }),
+    );
+    expect(screen.getByLabelText("Run name")).toHaveValue("JSON experiment");
+    expect(screen.getByLabelText("Objective", { exact: true })).toHaveValue(
+      "growth",
+    );
+    expect(screen.getByLabelText("Generation limit")).toHaveValue(0);
+    expect(screen.getByText("0 = train until paused.")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit configuration JSON" }),
+    );
+    expect(
+      JSON.parse(
+        (screen.getByLabelText("Configuration JSON") as HTMLTextAreaElement)
+          .value,
+      ),
+    ).toEqual(replacement);
+    await submit();
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith(replacement, false);
+  });
+  it.each([
+    ["Grid size", "24", /Size must be odd/],
+    ["CA horizon", "", /Steps must be finite/],
+    ["Population", "7", /Population size must be finite/],
+    ["Elites", "8", /Elite count must be finite/],
+    ["Mutation probability", "1.1", /Mutation rate must be finite/],
+    ["Generation limit", "-1", /Maximum generations must be finite/],
+    ["Generation limit", "1.5", /Maximum generations must be a safe integer/],
+    ["Training seeds", "1,,2", /comma-separated integers/],
+    ["Held-out seeds", "1729", /must not overlap/],
   ])(
-    "rejects %s without sending new work or replacing the experiment",
-    async (_label, text, message) => {
-      const { socket } = mountApp(savedStudy());
-      await importFile(uploadFile(String(text)));
-      expect(screen.getByRole("alert")).toHaveTextContent(message as RegExp);
-      expect(currentExperiment()).toEqual(savedStudy());
-      expect(socket.commands).toHaveLength(1);
+    "rejects invalid %s (%s) without any request or quiet clamping",
+    async (label, value, error) => {
+      const { onCreate, onClose } = dialog();
+      field(label, value);
+      await submit();
+      expect(screen.getByRole("alert")).toHaveTextContent(error);
+      expect(onCreate).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(http.mutations).toHaveLength(0);
     },
   );
-
-  it("rejects an oversized file before reading it and does nothing for a cancelled picker", async () => {
-    const { socket } = mountApp(savedStudy());
-    const file = uploadFile(JSON.stringify(savedStudy()), 100_001);
-    await importFile(file);
-    expect(file.text).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent("File exceeds 100 KB.");
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss error" }));
-    await importFile();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(currentExperiment()).toEqual(savedStudy());
-    expect(socket.commands).toHaveLength(1);
+  it("keeps malformed or incomplete JSON editable and preserves validation errors while switching editors", async () => {
+    const { onCreate } = dialog();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit configuration JSON" }),
+    );
+    field("Configuration JSON", "{");
+    await submit();
+    expect(screen.getByRole("alert")).toBeVisible();
+    field("Configuration JSON", JSON.stringify({ name: "Incomplete" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use parameter fields" }),
+    );
+    expect(screen.getByLabelText("Configuration JSON")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /exactly the documented fields/,
+    );
+    expect(onCreate).not.toHaveBeenCalled();
   });
-
-  it("exports the exact accepted experiment with its rule filename and releases the download URL", async () => {
-    mountApp(savedStudy());
-    const createObjectURL = vi.fn((_blob: Blob) => "blob:experiment-download");
-    const revokeObjectURL = vi.fn();
-    Object.defineProperties(URL, {
-      createObjectURL: { configurable: true, value: createObjectURL },
-      revokeObjectURL: { configurable: true, value: revokeObjectURL },
-    });
-    const downloads: { href: string; filename: string }[] = [];
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      downloads.push({ href: this.href, filename: this.download });
-    });
-    vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Save experiment" }));
-    expect(downloads).toEqual([
-      {
-        href: "blob:experiment-download",
-        filename: `polyp-${genomeId(savedStudy().genome)}.json`,
-      },
-    ]);
-    const blob = createObjectURL.mock.calls[0][0];
-    expect(blob.type).toBe("application/json");
-    expect(revokeObjectURL).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(1000));
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:experiment-download");
-    vi.useRealTimers();
-    const text = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = reject;
-      reader.readAsText(blob);
-    });
-    expect(JSON.parse(text)).toEqual(savedStudy());
-    expect(text).toBe(JSON.stringify(currentExperiment(), null, 2));
-  });
-
-  it("edits a private 45-gene draft, keeps empty void quiescent and applies one new rule", () => {
-    const { socket } = mountApp(savedStudy());
-    fireEvent.click(screen.getByRole("button", { name: "Edit rule" }));
-    expect(socket.latest.type).toBe("pause");
-    const dialog = screen.getByRole("dialog", { name: "Rule" });
+  it("edits the founder in a private 45-locus draft with a locked quiescent gene", async () => {
+    const initial = smallConfig();
+    const { onCreate } = dialog(initial);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit founder genome" }),
+    );
+    const rule = screen.getByRole("dialog", { name: "Rule" });
     expect(
-      within(dialog).getAllByRole("button", {
-        name: /^State \d, \d neighbors:/,
-      }),
-    ).toHaveLength(45);
-    expect(
-      within(dialog).getByRole("button", {
+      within(rule).getByRole("button", {
         name: "State 0, 0 neighbors: next state 0",
       }),
     ).toBeDisabled();
     fireEvent.click(
-      within(dialog).getByRole("button", {
-        name: "State 0, 1 neighbors: next state 1",
+      within(rule).getByRole("button", {
+        name: `State 0, 1 neighbors: next state ${initial.seedGenome[1]}`,
+      }),
+    );
+    fireEvent.click(within(rule).getByRole("button", { name: "Apply" }));
+    expect(onCreate).not.toHaveBeenCalled();
+    await submit();
+    const expectedGenome = [...initial.seedGenome];
+    expectedGenome[1] = (expectedGenome[1] + 1) % 5;
+    expect(onCreate.mock.calls[0][0].seedGenome).toEqual(expectedGenome);
+    expect(initial.seedGenome).not.toEqual(expectedGenome);
+  });
+  it("leaves a rejected server create visible and locks dismissal/submission while busy", async () => {
+    const { onCreate, onClose, rerender } = dialog();
+    onCreate.mockRejectedValue(new Error("All CPU workers are allocated."));
+    await submit();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "All CPU workers are allocated.",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    rerender(
+      <RunDialog
+        initial={smallConfig()}
+        maxWorkers={6}
+        busy
+        onCreate={onCreate}
+        onClose={onClose}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Create paused" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Close run configuration" }),
+    ).toBeDisabled();
+    const event = new Event("cancel", { cancelable: true });
+    screen.getByRole("dialog", { name: "New run" }).dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+async function mountApp(detail = fixture.detail, withPreview = true) {
+  const view = render(<App />);
+  const socket = ResearchSocket.instances.at(-1)!;
+  await http.reply("/api/runs", runList([detail]));
+  await http.reply(`/api/runs/${detail.summary.id}`, detail);
+  socket.hello();
+  if (withPreview) await finishPreviews(detail);
+  return { ...view, socket };
+}
+async function finishPreviews(detail = fixture.detail) {
+  // A genotype change can cancel an earlier preview; fulfill only the active
+  // requests here. Stale previews are exercised explicitly in a separate test.
+  for (const entry of http.requests.filter(
+    (r) => !r.settled && r.path.endsWith("/preview"),
+  )) {
+    const body = JSON.parse(String(entry.options.body));
+    await act(async () =>
+      entry.resolve(previewFor(detail, body.genome, body.seed)),
+    );
+  }
+}
+function volumeProps(): VolumeProps {
+  return viewport.render.mock.calls.at(-1)![0];
+}
+function uploadFile(text: string, bytes?: number) {
+  const file = new File([text], "checkpoint.json", {
+    type: "application/json",
+  });
+  Object.defineProperty(file, "text", {
+    value: vi.fn().mockResolvedValue(text),
+  });
+  if (bytes !== undefined)
+    Object.defineProperty(file, "size", { value: bytes });
+  return file;
+}
+async function uploadCheckpoint(file: File) {
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText("Import research checkpoint"), {
+      target: { files: [file] },
+    });
+  });
+}
+
+describe("API-backed research workbench", () => {
+  it("starts empty without fabricating a population or creating a browser-owned job", async () => {
+    render(<App />);
+    expect(screen.getByText("Loading runs…")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start run" })).toBeDisabled();
+    await http.reply("/api/runs", runList());
+    ResearchSocket.instances[0].hello();
+    expect(screen.getByText("Select or create an experiment.")).toBeVisible();
+    expect(
+      screen.getByRole("complementary", { name: "Run registry" }),
+    ).toBeVisible();
+    expect(viewport.render).not.toHaveBeenCalled();
+    expect(http.mutations).toHaveLength(0);
+    fireEvent.click(screen.getAllByRole("button", { name: "New run" })[0]);
+    expect(screen.getByRole("dialog", { name: "New run" })).toBeVisible();
+  });
+  it("renders an actual registry, measured population and auto-fit VM preview, with hideable analysis", async () => {
+    const { socket } = await mountApp();
+    expect(
+      screen.getByRole("button", {
+        name: `Select run ${fixture.detail.config.name}`,
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Population",
+      "Genetics",
+      "History",
+      "Compare",
+      "Parameters",
+    ]);
+    const rows = within(
+      screen.getByRole("table", {
+        name: "Population ranked by training fitness",
+      }),
+    ).getAllByRole("row");
+    expect(rows).toHaveLength(fixture.state.population.length + 1);
+    expect(
+      screen.getByRole("region", { name: "Run metrics" }),
+    ).toHaveTextContent(String(fixture.state.evaluations));
+    expect(volumeProps()).toMatchObject({
+      fitMode: "specimen",
+      visibleLayers: fixture.detail.config.steps,
+      simulation: { size: fixture.detail.config.size },
+    });
+    expect(volumeProps().simulation.layers[0]).toEqual(
+      Uint8Array.from(atob(fixture.preview.simulation.layers[0]), (c) =>
+        c.charCodeAt(0),
+      ),
+    );
+    const posts = http.mutations.length;
+    fireEvent.click(screen.getByRole("button", { name: "Focus champion" }));
+    expect(
+      screen.queryByRole("complementary", { name: "Run registry" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Run metrics" }),
+    ).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.getByRole("tablist")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Hide analysis panels" }),
+    );
+    expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show analysis panels" }),
+    );
+    expect(screen.getByRole("tabpanel", { name: "Population" })).toBeVisible();
+    expect(http.mutations).toHaveLength(posts);
+    expect(
+      socket.messages.every((message) => message.type === "subscribe"),
+    ).toBe(true);
+  });
+  it.each(["paused", "running"] as const)(
+    "Space selects a population row without changing a %s training run",
+    async (status) => {
+      const detail = changed(fixture.detail, { status });
+      await mountApp(detail);
+      const candidate = fixture.state.population.find(
+        (value) => value.id !== fixture.state.champion.id,
+      )!;
+      fireEvent.keyDown(
+        screen.getByRole("row", {
+          name: new RegExp(`individual ${candidate.id},`),
+        }),
+        { key: " ", code: "Space", bubbles: true, cancelable: true },
+      );
+      expect(
+        screen.getByRole("combobox", { name: "Inspected candidate" }),
+      ).toHaveValue("selected");
+      expect(
+        http.mutations.filter((entry) => entry.path.endsWith("/actions")),
+      ).toHaveLength(0);
+      await finishPreviews(detail);
+    },
+  );
+
+  it("selects real offspring, requests their exact genotype, and shows recorded rather than invented ancestry", async () => {
+    await mountApp();
+    const offspring = fixture.state.population.find(
+      (value) =>
+        value.parents.length &&
+        value.mutatedLoci.length &&
+        value.id !== fixture.state.champion.id,
+    )!;
+    expect(offspring).toBeDefined();
+    fireEvent.click(
+      screen.getByRole("row", {
+        name: new RegExp(`individual ${offspring.id},`),
       }),
     );
     expect(
-      within(dialog).getByRole("button", {
-        name: "State 0, 1 neighbors: next state 2",
+      screen.getByRole("combobox", { name: "Inspected candidate" }),
+    ).toHaveValue("selected");
+    expect(
+      JSON.parse(
+        String(http.pending("/api/runs/run-a/preview", "POST").options.body),
+      ),
+    ).toEqual({
+      genome: offspring.genome,
+      seed: fixture.detail.config.trainingSeeds[0],
+    });
+    await finishPreviews();
+    fireEvent.click(screen.getByRole("tab", { name: "Genetics" }));
+    const genetics = screen.getByRole("region", {
+      name: "Genetics and immediate ancestry",
+    });
+    expect(genetics).toHaveTextContent(offspring.id);
+    for (const parent of offspring.parents)
+      expect(genetics).toHaveTextContent(parent.id);
+    expect(genetics).toHaveTextContent(
+      `Mutated loci ${offspring.mutatedLoci.length}`,
+    );
+    expect(
+      within(genetics).getByRole("table", {
+        name: "Selected rule: current state by active Moore neighbors",
       }),
     ).toBeVisible();
-    expect(currentExperiment()).toEqual(savedStudy());
-    fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    const genome = [...savedStudy().genome];
-    genome[1] = 2;
-    expect(currentExperiment()).toEqual({
-      ...savedStudy(),
-      genome,
-      name: "Custom",
+    field("Inspected candidate", "best");
+    await finishPreviews();
+    expect(genetics).toHaveTextContent(fixture.state.champion.id);
+  });
+  it("loads retained populations separately from live generation metrics and returns to latest", async () => {
+    await mountApp();
+    fireEvent.click(screen.getByRole("tab", { name: "History" }));
+    expect(
+      screen.getByRole("img", { name: /Fitness by GA generation/ }),
+    ).toBeVisible();
+    field("Retained generation", "0");
+    expect(screen.getByText("Loading population…")).toBeVisible();
+    await http.reply("/api/runs/run-a/generations/0", fixture.snapshots[0]);
+    await finishPreviews();
+    expect(
+      screen.getByRole("combobox", { name: "Inspected candidate" }),
+    ).toHaveValue("generation");
+    fireEvent.click(screen.getByRole("tab", { name: "Population" }));
+    expect(
+      screen.getByText("Generation 0 · 8 individuals · fitness descending"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("region", { name: "Run metrics" }),
+    ).toHaveTextContent("Generation2 / ∞");
+    fireEvent.click(screen.getByRole("tab", { name: "History" }));
+    fireEvent.click(screen.getByRole("button", { name: "Latest" }));
+    await finishPreviews();
+    fireEvent.click(screen.getByRole("tab", { name: "Population" }));
+    expect(
+      screen.getByText("Generation 2 · 8 individuals · fitness descending"),
+    ).toBeVisible();
+  });
+  it("sends Step/Start/Pause over HTTP, disables concurrent controls, and preserves accepted state on failure", async () => {
+    await mountApp();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Step one generation" }),
+    );
+    expect(
+      JSON.parse(
+        String(http.pending("/api/runs/run-a/actions", "POST").options.body),
+      ),
+    ).toEqual({ action: "step" });
+    expect(screen.getByRole("button", { name: "Start run" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Save checkpoint" }),
+    ).toBeDisabled();
+    await http.reply("/api/runs/run-a/actions", fixture.detail, "POST");
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+    const running = changed(fixture.detail, {
+      status: "running",
+      workerCount: 1,
+      updatedAt: "2026-01-01T00:00:10.000Z",
     });
-    settleEdits();
-    expect(socket.request).toMatchObject({
-      type: "evaluate",
-      genome,
-      epoch: 0,
+    await http.reply("/api/runs/run-a/actions", running, "POST");
+    expect(screen.getByRole("button", { name: "Pause run" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Step one generation" }),
+    ).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Pause run" }));
+    await http.reply(
+      "/api/runs/run-a/actions",
+      { error: "Unable to save checkpoint." },
+      "POST",
+      500,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Unable to save checkpoint.",
+    );
+    expect(screen.getByRole("button", { name: "Pause run" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss error" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+  it("treats time, closeup, materials and camera as local views, not job mutations", async () => {
+    await mountApp();
+    const requests = http.requests.length;
+    fireEvent.click(
+      screen.getByRole("button", { name: "Inspect rendered layer three" }),
+    );
+    expect(screen.getByRole("slider", { name: "CA timestep" })).toHaveValue(
+      "4",
+    );
+    expect(volumeProps().visibleLayers).toBe(4);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Inspector view options" }),
+    );
+    field("Preview display", "slice");
+    expect(volumeProps()).toMatchObject({ view: "top", visibleLayers: 1 });
+    expect(volumeProps().simulation.layers).toHaveLength(1);
+    field("Render material", "points");
+    field("Palette", "ember");
+    expect(volumeProps()).toMatchObject({ mode: "points", palette: "ember" });
+    const resetKey = volumeProps().resetKey;
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reset specimen camera" }),
+    );
+    expect(volumeProps().resetKey).toBeGreaterThan(resetKey!);
+    expect(http.requests).toHaveLength(requests);
+  });
+  it("rejects a stale preview after switching runs and requests the selected run's own fixture", async () => {
+    const other = await researchFixture("run-b", 0, {
+      name: "Other world",
+      size: 11,
+      seed: "islands",
+      trainingSeeds: [23],
     });
-    socket.respond();
-    expect(volumeProps().simulation).toEqual(
-      simulate(genome, savedStudy().config),
+    const { socket } = await mountApp(fixture.detail, false);
+    const old = http.pending("/api/runs/run-a/preview", "POST");
+    socket.reply({ type: "runs", ...runList([fixture.detail, other.detail]) });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Select run Other world" }),
+    );
+    expect((old.options.signal as AbortSignal).aborted).toBe(true);
+    await http.reply("/api/runs/run-b", other.detail);
+    await http.reply("/api/runs/run-b/preview", other.preview, "POST");
+    await act(async () => old.resolve(fixture.preview));
+    expect(volumeProps().simulation.size).toBe(11);
+    expect(
+      screen.getByRole("combobox", { name: "Preview fixture" }),
+    ).toHaveValue("23");
+  });
+  it("does not pause jobs on unmount and keeps native controls available after observer-only disconnect", async () => {
+    const running = changed(fixture.detail, {
+      status: "running",
+      workerCount: 1,
+    });
+    const { socket, unmount } = await mountApp(running);
+    const before = http.mutations.length;
+    socket.disconnect();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /VM runs are unaffected/,
+    );
+    expect(screen.getByRole("button", { name: "Pause run" })).toBeEnabled();
+    unmount();
+    expect(http.mutations).toHaveLength(before);
+  });
+  it("displays immutable configuration and opens an explicit champion-derived variant instead of mutating a job", async () => {
+    await mountApp();
+    fireEvent.click(screen.getByRole("tab", { name: "Parameters" }));
+    expect(
+      JSON.parse(screen.getByLabelText("Run configuration").textContent!),
+    ).toEqual(fixture.detail.config);
+    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+    const posts = http.mutations.length;
+    fireEvent.click(
+      screen.getByRole("button", { name: "New variant from champion" }),
+    );
+    const configDialog = screen.getByRole("dialog", {
+      name: "New variant from champion",
+    });
+    expect(within(configDialog).getByLabelText("Run name")).toHaveValue(
+      `${fixture.detail.config.name} · variant`,
+    );
+    fireEvent.click(
+      within(configDialog).getByRole("button", {
+        name: "Edit configuration JSON",
+      }),
+    );
+    const config = JSON.parse(
+      (
+        within(configDialog).getByLabelText(
+          "Configuration JSON",
+        ) as HTMLTextAreaElement
+      ).value,
+    );
+    expect(config).toEqual({
+      ...fixture.detail.config,
+      name: `${fixture.detail.config.name} · variant`,
+      seedGenome: fixture.state.champion.genome,
+    });
+    fireEvent.click(
+      within(configDialog).getByRole("button", {
+        name: "Close run configuration",
+      }),
+    );
+    expect(http.mutations).toHaveLength(posts);
+  });
+  it("compares frozen HTTP histories and warns when fitness objectives are not comparable", async () => {
+    const other = await researchFixture("comparison-run", 1, {
+      name: "Different objective",
+      objective: "growth",
+    });
+    const { socket } = await mountApp();
+    socket.reply({ type: "runs", ...runList([fixture.detail, other.detail]) });
+    fireEvent.click(screen.getByRole("tab", { name: "Compare" }));
+    await http.reply("/api/runs/run-a", fixture.detail);
+    field("Add comparison run", "comparison-run");
+    await http.reply("/api/runs/run-a", fixture.detail);
+    await http.reply("/api/runs/comparison-run", other.detail);
+    expect(
+      screen.getByText(
+        "Different evaluation settings: these fitness scores are not directly comparable.",
+      ),
+    ).toBeVisible();
+    const chart = screen.getByRole("img", {
+      name: "Best fitness comparison by selected run",
+    });
+    expect(chart.querySelectorAll("polyline")).toHaveLength(2);
+    const requestCount = http.requests.length;
+    field("Comparison axis", "generation");
+    expect(http.requests).toHaveLength(requestCount);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh comparison" }));
+    await http.reply(
+      "/api/runs/run-a",
+      { error: "Run is temporarily unavailable." },
+      "GET",
+      503,
+    );
+    await http.reply("/api/runs/comparison-run", other.detail);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Run is temporarily unavailable.",
     );
   });
-
-  it("discards cancelled drafts and pauses a live run before opening the editor", () => {
-    const { socket } = mountApp(savedStudy());
-    fireEvent.click(screen.getByRole("button", { name: "Run evolution" }));
-    const stale = socket.respond();
-    const accepted = currentExperiment();
-    fireEvent.click(screen.getByRole("button", { name: "Edit rule" }));
-    expect(socket.latest.type).toBe("pause");
-    socket.reply({ ...stale, genome: PRESETS[0].genome });
-    const originalGene = `State 0, 1 neighbors: next state ${accepted.genome[1]}`;
-    fireEvent.click(screen.getByRole("button", { name: originalGene }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Cancel" }),
+  it("checkpoints durably before starting a download and imports complete state as a new paused identity", async () => {
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    await mountApp();
+    fireEvent.click(screen.getByRole("tab", { name: "Parameters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export checkpoint" }));
+    expect(click).not.toHaveBeenCalled();
+    await http.reply("/api/runs/run-a/actions", fixture.detail, "POST");
+    expect(click).toHaveBeenCalledOnce();
+    expect(
+      (click.mock.contexts[0] as HTMLAnchorElement).getAttribute("href"),
+    ).toBe("/api/runs/run-a/checkpoint");
+    await uploadCheckpoint(uploadFile(JSON.stringify(fixture.checkpoint)));
+    expect(
+      JSON.parse(String(http.pending("/api/runs/import", "POST").options.body)),
+    ).toEqual({ checkpoint: fixture.checkpoint, start: false });
+    const imported = changed(fixture.detail, {
+      id: "imported-run",
+      name: "Imported checkpoint",
+      parentRunId: "run-a",
+      createdAt: "2026-01-03T00:00:00.000Z",
+    });
+    await http.reply("/api/runs/import", imported, "POST");
+    expect(
+      screen.getByRole("button", { name: "Select run Imported checkpoint" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Start run" })).toBeEnabled();
+  });
+  it.each(["not json", JSON.stringify({ invalid: true })])(
+    "reports invalid imported data without replacing current research: %s",
+    async (text) => {
+      await mountApp();
+      const mutations = http.mutations.length;
+      await uploadCheckpoint(uploadFile(text));
+      expect(screen.getByRole("alert")).toBeVisible();
+      expect(
+        screen.getByRole("button", {
+          name: `Select run ${fixture.detail.config.name}`,
+        }),
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(http.mutations).toHaveLength(mutations);
+    },
+  );
+  it("rejects oversized imports before reading or sending them", async () => {
+    await mountApp();
+    const file = uploadFile("{}", 16 * 1024 * 1024 + 1);
+    await uploadCheckpoint(file);
+    expect(file.text).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Checkpoint exceeds 16 MiB.",
     );
-    expect(currentExperiment()).toEqual(accepted);
-    fireEvent.click(screen.getByRole("button", { name: "Edit rule" }));
-    expect(screen.getByRole("button", { name: originalGene })).toBeVisible();
-    fireEvent(
-      screen.getByRole("dialog"),
-      new Event("cancel", { cancelable: true }),
-    );
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(currentExperiment()).toEqual(accepted);
   });
 });

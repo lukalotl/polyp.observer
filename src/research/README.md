@@ -90,7 +90,7 @@ and cut+1..44 from parent 1 (cut is 1..43). `none` or a failed crossover probabi
 keeps one parent. Crossover may select the same parent twice; its recorded mask
 still truthfully records the operation, not invented genetic novelty.
 
-Each unlocked locus mutates independently, always to a *different* output among
+Each unlocked locus mutates independently, always to a _different_ output among
 the other four states. `crossoverMask[45]` records pre-mutation source parent;
 `mutatedLoci` is sorted, unique, excludes 0 and lists actual changes. Two-parent
 children have origin `crossover` even if also mutated; one-parent children are
@@ -111,7 +111,7 @@ by result-completion order. JSON round-trip plus next-generation evaluation give
 the exact same state, including IDs, masks, cache order and counters. The backend
 may abort an evaluator and keep the prior state: advance works on a detached
 transaction, and passes detached genomes/config to the evaluator. Snapshots also
-do not alias live state. `maxGenerations: 0` means unbounded *genetic training*;
+do not alias live state. `maxGenerations: 0` means unbounded _genetic training_;
 CA horizons remain finite. Explicit positive limits stop further advances.
 
 ## Cache and accounting
@@ -177,10 +177,10 @@ Observed on this workspace, Node v22.23.2 / AMD EPYC (2026-09-06), five alternat
 measured rounds after warm-up, 64 deterministic mixed-density mutant candidates
 per round, **one fixture per candidate, inline single-thread, uncached**:
 
-| Fixture | Legacy volume eval/s | Streaming sparse scalar eval/s | Speed ratio |
-|---|---:|---:|---:|
-| 49×49, 96 layers, Cross | 242.31 | 279.43 | 1.153× |
-| 97×97, 192 layers, Islands | 34.74 | 50.22 | 1.445× |
+| Fixture                    | Legacy volume eval/s | Streaming sparse scalar eval/s | Speed ratio |
+| -------------------------- | -------------------: | -----------------------------: | ----------: |
+| 49×49, 96 layers, Cross    |               242.31 |                         279.43 |      1.153× |
+| 97×97, 192 layers, Islands |                34.74 |                          50.22 |      1.445× |
 
 These are measured medians, not universal speedup claims. Workload density,
 extinction, CPU contention, thread-pool size and horizons affect throughput.

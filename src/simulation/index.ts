@@ -1,4 +1,6 @@
 /**
+ * Frozen full-history reference simulator and prototype helpers for golden tests.
+ * Production training uses src/research/engine.ts and its compact evaluator.
  * Five-state, outer-totalistic cellular automata. A deliberately small, visual
  * adaptation of minimal-rule evolution, not a reproduction of a paper model.
  * Every cell sees the occupied (not state-summed) count in its Moore neighborhood.

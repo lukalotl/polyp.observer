@@ -1,5 +1,8 @@
 import * as THREE from "three";
-import { LAYER_HEIGHT } from "./volumeData";
+import { LAYER_HEIGHT, type VolumeBounds } from "./volumeData";
+
+export type VolumeView = "iso" | "top" | "front";
+export type VolumeFitMode = "specimen" | "world";
 
 interface CameraFitOptions {
   latticeSize: number;
@@ -7,16 +10,34 @@ interface CameraFitOptions {
   width: number;
   height: number;
   annotations?: boolean;
+  fitMode?: VolumeFitMode;
+  view?: VolumeView;
+  occupiedBounds?: VolumeBounds | null;
 }
 
-/** Stable lattice framing, independent of occupancy, playback and material. */
+/** Fit all occupied sampled layers (stable during playback), or the original world lattice. */
 export function fitVolumeCamera({
   latticeSize,
   layers,
   width,
   height,
   annotations = false,
+  fitMode = "world",
+  view = "iso",
+  occupiedBounds,
 }: CameraFitOptions) {
+  if (fitMode === "specimen" || view !== "iso") {
+    return fitBoundsCamera({
+      latticeSize,
+      layers,
+      width,
+      height,
+      annotations,
+      fitMode,
+      view,
+      occupiedBounds,
+    });
+  }
   const timeHeight = Math.max(1, layers - 1) * LAYER_HEIGHT;
   const target = new THREE.Vector3(0, timeHeight * 0.45, 0);
   const reference = new THREE.OrthographicCamera();
@@ -65,6 +86,67 @@ export function fitVolumeCamera({
     position: reference.position.clone().add(shift),
     quaternion: reference.quaternion.clone(),
     target: target.add(shift),
+    zoom,
+  };
+}
+
+function fitBoundsCamera({
+  latticeSize,
+  layers,
+  width,
+  height,
+  annotations = false,
+  fitMode,
+  view,
+  occupiedBounds,
+}: CameraFitOptions) {
+  const half = Math.max(1, latticeSize) / 2;
+  const timeHeight = Math.max(0, layers - 1) * LAYER_HEIGHT;
+  const specimen = fitMode === "specimen" && occupiedBounds;
+  const envelope = specimen
+    ? new THREE.Box3(
+        new THREE.Vector3(...specimen.min),
+        new THREE.Vector3(...specimen.max),
+      )
+    : new THREE.Box3(
+        new THREE.Vector3(-half - 2.65, -0.98, -half - 2.65),
+        new THREE.Vector3(half + 2.65, timeHeight + 0.5, half + 2.65),
+      );
+  if (annotations) {
+    // Match the stage's floor, frame and labels. The specimen stage is local to occupied extents.
+    envelope.min.add(new THREE.Vector3(-7.2, -0.8, -0.8));
+    envelope.max.add(new THREE.Vector3(6.5, 4, 6));
+  }
+  const target = envelope.getCenter(new THREE.Vector3());
+  const span = envelope.getSize(new THREE.Vector3());
+  const distance = Math.max(span.x, span.y, span.z, 4) * 3;
+  const direction =
+    view === "top"
+      ? new THREE.Vector3(0, 1, 0)
+      : view === "front"
+        ? new THREE.Vector3(0, 0, 1)
+        : new THREE.Vector3(1.5, 0.7, 1.8).normalize();
+  const reference = new THREE.OrthographicCamera();
+  if (view === "top") reference.up.set(0, 0, -1);
+  reference.position.copy(target).addScaledVector(direction, distance);
+  reference.lookAt(target);
+  reference.updateMatrixWorld();
+  const projected = new THREE.Box3();
+  for (const x of [envelope.min.x, envelope.max.x])
+    for (const y of [envelope.min.y, envelope.max.y])
+      for (const z of [envelope.min.z, envelope.max.z])
+        projected.expandByPoint(
+          new THREE.Vector3(x, y, z).applyMatrix4(reference.matrixWorldInverse),
+        );
+  const projectedSpan = projected.getSize(new THREE.Vector3());
+  const zoom = Math.min(
+    (Math.max(1, width) * 0.92) / Math.max(0.1, projectedSpan.x),
+    (Math.max(1, height) * 0.92) / Math.max(0.1, projectedSpan.y),
+  );
+  return {
+    position: reference.position.clone(),
+    quaternion: reference.quaternion.clone(),
+    target,
     zoom,
   };
 }

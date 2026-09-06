@@ -2,7 +2,12 @@ import type { Genome, Objective, SeedMode, Simulation } from "../simulation";
 
 export const MODEL_VERSION = "ca5-moore-research-v1";
 
-export interface FitnessWeights { diversity: number; activity: number; density: number; variation: number }
+export interface FitnessWeights {
+  diversity: number;
+  activity: number;
+  density: number;
+  variation: number;
+}
 export interface RunConfig {
   name: string;
   size: number;
@@ -57,7 +62,8 @@ export interface ParentRef {
   fitness: number;
   birthGeneration: number;
 }
-export type IndividualOrigin = "founder" | "random" | "mutant" | "crossover" | "clone" | "immigrant";
+export type IndividualOrigin =
+  "founder" | "random" | "mutant" | "crossover" | "clone" | "immigrant";
 export interface Individual extends Evaluation {
   id: string;
   genome: Genome;
@@ -68,7 +74,10 @@ export interface Individual extends Evaluation {
   crossoverMask: number[];
   mutatedLoci: number[];
 }
-export interface CachedEvaluation { key: string; evaluation: Evaluation }
+export interface CachedEvaluation {
+  key: string;
+  evaluation: Evaluation;
+}
 /** Complete, serializable genetic state; RNG and population survive checkpoints. */
 export interface EngineState {
   version: 1;
@@ -109,8 +118,20 @@ export interface HistoryPoint extends GenerationMetrics {
   generationMs: number;
   evalsPerSecond: number;
 }
-export interface ChampionPoint { generation: number; individual: Individual; elapsedMs: number }
-export type RunStatus = "paused" | "queued" | "starting" | "running" | "pausing" | "completed" | "failed" | "archived";
+export interface ChampionPoint {
+  generation: number;
+  individual: Individual;
+  elapsedMs: number;
+}
+export type RunStatus =
+  | "paused"
+  | "queued"
+  | "starting"
+  | "running"
+  | "pausing"
+  | "completed"
+  | "failed"
+  | "archived";
 export interface RunSummary {
   id: string;
   name: string;
@@ -135,7 +156,11 @@ export interface RunSummary {
   stopReason: string | null;
   parentRunId: string | null;
 }
-export interface SnapshotRef { generation: number; savedAt: string; bestFitness: number }
+export interface SnapshotRef {
+  generation: number;
+  savedAt: string;
+  bestFitness: number;
+}
 export interface RunDetail {
   summary: RunSummary;
   config: RunConfig;
@@ -144,8 +169,16 @@ export interface RunDetail {
   improvements: ChampionPoint[];
   snapshots: SnapshotRef[];
 }
-export interface Capacity { maxRuns: number; maxEvaluationWorkers: number; allocatedWorkers: number }
-export interface RunList { runs: RunSummary[]; capacity: Capacity; modelVersion: string }
+export interface Capacity {
+  maxRuns: number;
+  maxEvaluationWorkers: number;
+  allocatedWorkers: number;
+}
+export interface RunList {
+  runs: RunSummary[];
+  capacity: Capacity;
+  modelVersion: string;
+}
 export interface RunCheckpoint {
   format: "polyp-research-checkpoint";
   version: 1;
@@ -174,4 +207,7 @@ export interface PreviewFrame {
   totalSteps: number;
   stride: number;
 }
-export type BatchEvaluator = (genomes: Genome[], config: RunConfig) => Promise<Evaluation[]>;
+export type BatchEvaluator = (
+  genomes: Genome[],
+  config: RunConfig,
+) => Promise<Evaluation[]>;

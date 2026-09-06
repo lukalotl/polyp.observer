@@ -5,6 +5,23 @@ export const VOXEL_WIDTH = 0.92;
 export interface VolumeSimulation {
   layers: Uint8Array[];
   size: number;
+  /** Actual CA timestep per sampled layer; geometry and callbacks still use array indices. */
+  layerTimes?: number[];
+}
+
+export interface VolumeBounds {
+  min: [number, number, number];
+  max: [number, number, number];
+}
+
+/** A supplied but incomplete time map must not mislabel sample indices as timesteps. */
+export function layerTimeLabel(
+  index: number,
+  layerTimes?: readonly number[],
+): string {
+  if (!layerTimes) return String(index);
+  const time = layerTimes[index];
+  return Number.isFinite(time) ? String(time) : "?";
 }
 
 export interface PackedVolume {
@@ -14,6 +31,8 @@ export interface PackedVolume {
   layers: Uint16Array;
   layerEnds: Uint32Array;
   count: number;
+  /** Occupied voxel extents, including voxel thickness; null for an empty specimen. */
+  bounds: VolumeBounds | null;
 }
 
 export function packVolume(simulation: VolumeSimulation): PackedVolume {
@@ -34,6 +53,8 @@ export function packVolume(simulation: VolumeSimulation): PackedVolume {
   const instanceLayers = new Uint16Array(count);
   const center = (size - 1) / 2;
   let index = 0;
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
   layers.forEach((layer, t) => {
     for (let cell = 0; cell < Math.min(layer.length, size * size); cell++) {
       const state = layer[cell];
@@ -41,6 +62,12 @@ export function packVolume(simulation: VolumeSimulation): PackedVolume {
       const x = (cell % size) - center;
       const y = t * LAYER_HEIGHT;
       const z = Math.floor(cell / size) - center;
+      min[0] = Math.min(min[0], x - VOXEL_WIDTH / 2);
+      min[1] = Math.min(min[1], y - (LAYER_HEIGHT * VOXEL_WIDTH) / 2);
+      min[2] = Math.min(min[2], z - VOXEL_WIDTH / 2);
+      max[0] = Math.max(max[0], x + VOXEL_WIDTH / 2);
+      max[1] = Math.max(max[1], y + (LAYER_HEIGHT * VOXEL_WIDTH) / 2);
+      max[2] = Math.max(max[2], z + VOXEL_WIDTH / 2);
       positions.set([x, y, z], index * 3);
       const offset = index * 16;
       matrices[offset] = VOXEL_WIDTH;
@@ -62,6 +89,7 @@ export function packVolume(simulation: VolumeSimulation): PackedVolume {
     layers: instanceLayers,
     layerEnds,
     count,
+    bounds: count ? { min, max } : null,
   };
 }
 

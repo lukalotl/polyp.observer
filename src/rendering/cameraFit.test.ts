@@ -141,3 +141,100 @@ describe("full-viewport camera framing", () => {
     }
   });
 });
+
+describe("occupied specimen camera framing", () => {
+  const occupiedBounds = {
+    min: [12.54, -0.3312, -4.46],
+    max: [16.46, 12.5712, -1.54],
+  } as const;
+  const bounds = {
+    min: [...occupiedBounds.min],
+    max: [...occupiedBounds.max],
+  } as { min: [number, number, number]; max: [number, number, number] };
+  it.each(["iso", "top", "front"] as const)(
+    "centers and tightly fits real, asymmetric occupied extents in %s view",
+    (view) => {
+      for (const viewport of [
+        { width: 1440, height: 800 },
+        { width: 390, height: 750 },
+        { width: 844, height: 390 },
+      ]) {
+        const options = {
+          latticeSize: 101,
+          layers: 128,
+          fitMode: "specimen" as const,
+          view,
+          occupiedBounds: bounds,
+          ...viewport,
+        };
+        const camera = fittedCamera(options);
+        const projected = new THREE.Box3();
+        for (const x of [bounds.min[0], bounds.max[0]])
+          for (const y of [bounds.min[1], bounds.max[1]])
+            for (const z of [bounds.min[2], bounds.max[2]])
+              projected.expandByPoint(
+                new THREE.Vector3(x, y, z).project(camera),
+              );
+        const span = projected.getSize(new THREE.Vector3());
+        const center = projected.getCenter(new THREE.Vector3());
+        expect(center.x).toBeCloseTo(0);
+        expect(center.y).toBeCloseTo(0);
+        expect(Math.max(span.x, span.y)).toBeCloseTo(1.84);
+        expect(projected.min.z).toBeGreaterThan(-1);
+        expect(projected.max.z).toBeLessThan(1);
+        expect(fitVolumeCamera(options).zoom).toBeGreaterThan(
+          fitVolumeCamera({ ...options, fitMode: "world" }).zoom,
+        );
+      }
+    },
+  );
+  it("chooses exact top/front axes and doubles zoom on a proportional viewport resize", () => {
+    const options = {
+      latticeSize: 31,
+      layers: 60,
+      width: 600,
+      height: 300,
+      fitMode: "specimen" as const,
+      occupiedBounds: bounds,
+    };
+    for (const view of ["top", "front"] as const) {
+      const fit = fitVolumeCamera({ ...options, view });
+      const direction = fit.position.clone().sub(fit.target).normalize();
+      expect(
+        direction.distanceTo(
+          view === "top"
+            ? new THREE.Vector3(0, 1, 0)
+            : new THREE.Vector3(0, 0, 1),
+        ),
+      ).toBeLessThan(1e-12);
+      expect(
+        fitVolumeCamera({ ...options, view, width: 1200, height: 600 }).zoom,
+      ).toBeCloseTo(fit.zoom * 2);
+    }
+  });
+  it("handles empty data, one thin voxel, zero-size canvas and optional annotation space", () => {
+    for (const occupiedBounds of [
+      null,
+      { min: [-0.46, -0.3312, -0.46], max: [0.46, 0.3312, 0.46] },
+    ] as const) {
+      const options = {
+        latticeSize: 1,
+        layers: 0,
+        width: 0,
+        height: 0,
+        fitMode: "specimen" as const,
+        occupiedBounds: occupiedBounds
+          ? ({
+              min: [...occupiedBounds.min],
+              max: [...occupiedBounds.max],
+            } as typeof bounds)
+          : null,
+      };
+      expect(Number.isFinite(fitVolumeCamera(options).zoom)).toBe(true);
+      expect(fitVolumeCamera(options).zoom).toBeGreaterThan(0);
+      expect(
+        fitVolumeCamera({ ...options, annotations: true }).zoom,
+      ).toBeLessThan(fitVolumeCamera(options).zoom);
+    }
+  });
+});

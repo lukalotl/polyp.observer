@@ -1,648 +1,1128 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  Copy,
   Download,
   Focus,
+  GitBranch,
+  List,
+  Maximize2,
+  Minimize2,
   Pause,
   Play,
+  Plus,
+  RefreshCw,
   Settings2,
   SkipForward,
-  SlidersHorizontal,
   Upload,
   X,
 } from "lucide-react";
 import Volume from "./components/Volume";
-import RuleEditor from "./components/RuleEditor";
-import { PopulationChart } from "./components/PopulationChart";
-import {
-  PRESETS,
-  genomeId,
-  type Config,
-  type Objective,
-  type SeedMode,
-} from "./simulation";
-import {
-  loadExperiment,
-  parseExperiment,
-  STORAGE_KEY,
-  type Experiment,
-} from "./experiment";
-import { useEvolution } from "./useEvolution";
+import RunDialog from "./components/research/RunDialog";
+import PopulationView from "./components/research/PopulationView";
+import GeneticsView from "./components/research/GeneticsView";
+import HistoryView from "./components/research/HistoryView";
+import ComparisonView from "./components/research/ComparisonView";
+import { useResearch } from "./useResearch";
+import { DEFAULT_RUN_CONFIG } from "./research/config";
+import { download, request } from "./research/api";
+import { decodePreview } from "./research/preview";
+import { duration, fitnessNumber, number, time } from "./research/format";
+import { parseExperiment } from "./experiment";
+import type {
+  GenerationSnapshot,
+  Individual,
+  PreviewFrame,
+  RunCheckpoint,
+  RunConfig,
+  RunStatus,
+} from "./research/types";
 
-const DEFAULT_EXPERIMENT: Experiment = {
-  version: 1,
-  name: PRESETS[0].name,
-  genome: PRESETS[0].genome,
-  config: { size: 41, steps: 48, seed: PRESETS[0].seed, randomSeed: 1729 },
+const ACTIVE: RunStatus[] = ["running", "queued", "starting", "pausing"];
+type Panel = "population" | "genetics" | "history" | "compare" | "parameters";
+const panelNames: Record<Panel, string> = {
+  population: "Population",
+  genetics: "Genetics",
+  history: "History",
+  compare: "Compare",
+  parameters: "Parameters",
 };
 
 export default function App() {
-  const [initial] = useState(() => loadExperiment() ?? DEFAULT_EXPERIMENT);
-  const vm = useEvolution(initial);
-  const [panel, setPanel] = useState<"controls" | "diagnostics" | null>(null);
-  const [ruleOpen, setRuleOpen] = useState(false);
+  const lab = useResearch();
+  const [showRuns, setShowRuns] = useState(() => window.innerWidth > 800);
+  const [showAnalysis, setShowAnalysis] = useState(true);
+  const [showMetrics, setShowMetrics] = useState(true);
+  const [focus, setFocus] = useState(false);
+  const [panel, setPanel] = useState<Panel>("population");
+  const [newConfig, setNewConfig] = useState<RunConfig | null>(null);
+  const [configurationTitle, setConfigurationTitle] = useState("New run");
+  const [showArchived, setShowArchived] = useState(false);
+  const [historical, setHistorical] = useState<GenerationSnapshot | null>(null);
+  const [requestedGeneration, setRequestedGeneration] = useState<number | null>(
+    null,
+  );
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [selected, setSelected] = useState<{
+    individual: Individual;
+    generation: number;
+  } | null>(null);
+  const [source, setSource] = useState<"best" | "generation" | "selected">(
+    "best",
+  );
+  const [frame, setFrame] = useState<PreviewFrame | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [fixtureSeed, setFixtureSeed] = useState<number | null>(null);
+  const [visibleLayers, setVisibleLayers] = useState(1);
+  const [playing, setPlaying] = useState(false);
+  const [displayMode, setDisplayMode] = useState<"volume" | "slice">("volume");
+  const [view, setView] = useState<"iso" | "top" | "front">("iso");
+  const [material, setMaterial] = useState<"voxels" | "points">("voxels");
   const [palette, setPalette] = useState<"mineral" | "ember" | "ink">(
     "mineral",
   );
-  const [mode, setMode] = useState<"voxels" | "points">("voxels");
   const [grain, setGrain] = useState(true);
-  const [autoRotate, setAutoRotate] = useState(false);
   const [annotations, setAnnotations] = useState(false);
-  const [showTimeline, setShowTimeline] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [viewOptions, setViewOptions] = useState(false);
   const [resetKey, setResetKey] = useState(0);
-  const [visibleLayers, setVisibleLayers] = useState(initial.config.steps);
-  const [playing, setPlaying] = useState(false);
-  const [fileError, setFileError] = useState("");
-  const fileInput = useRef<HTMLInputElement>(null);
-  const { experiment, simulation, settings } = vm;
-  const depth = simulation?.layers.length ?? experiment.config.steps;
-  const currentLayer = Math.min(depth, visibleLayers);
-  const busy = vm.running || vm.pending || vm.connection !== "ready";
-  const selectedPreset =
-    PRESETS.find(
-      (preset) =>
-        preset.seed === experiment.config.seed &&
-        preset.genome.every((gene, index) => gene === experiment.genome[index]),
-    )?.id ?? "custom";
+  const [localError, setLocalError] = useState("");
+  const upload = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const detail = lab.detail;
+  const run = detail?.summary;
+  const workingSnapshot = historical ?? detail?.snapshot ?? null;
+  const generationBest = useMemo(
+    () =>
+      workingSnapshot?.population.reduce<Individual | null>(
+        (best, individual) =>
+          !best || individual.fitness > best.fitness ? individual : best,
+        null,
+      ) ?? null,
+    [workingSnapshot],
+  );
+  const individual =
+    source === "selected"
+      ? (selected?.individual ?? null)
+      : source === "generation"
+        ? generationBest
+        : (detail?.snapshot?.champion ?? null);
+  const genome = individual?.genome ?? detail?.config.seedGenome ?? null;
+  const genomeKey = genome?.join("") ?? "";
+  const previewSeed = fixtureSeed ?? detail?.config.trainingSeeds[0] ?? 1729;
+  const decoded = useMemo(() => (frame ? decodePreview(frame) : null), [frame]);
+  const layer = Math.max(
+    0,
+    Math.min((decoded?.layers.length ?? 1) - 1, visibleLayers - 1),
+  );
+  const renderSimulation = useMemo(
+    () =>
+      !decoded
+        ? null
+        : displayMode === "slice"
+          ? {
+              size: decoded.size,
+              layers: [decoded.layers[layer]],
+              layerTimes: [decoded.layerTimes[layer]],
+            }
+          : decoded,
+    [decoded, displayMode, layer],
+  );
+  const actualTime = decoded?.layerTimes[layer] ?? 0;
+  const isActive = run ? ACTIVE.includes(run.status) : false;
+  const actionError = localError || lab.error;
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(experiment));
-    } catch {
-      /* Optional local persistence. */
-    }
-  }, [experiment]);
-  useEffect(() => {
-    if (simulation) setVisibleLayers(simulation.layers.length);
+    setHistorical(null);
+    setRequestedGeneration(null);
+    setSelected(null);
+    setSource("best");
+    setFixtureSeed(null);
+    setFrame(null);
+    setPreviewError("");
     setPlaying(false);
-  }, [simulation]);
+  }, [lab.selectedId]);
+
   useEffect(() => {
-    if (!playing) return;
+    if (!lab.selectedId || !genome || !detail) return;
+    const controller = new AbortController();
+    setPreviewBusy(true);
+    setPreviewError("");
+    setPlaying(false);
+    void request<PreviewFrame>(
+      `/api/runs/${encodeURIComponent(lab.selectedId)}/preview`,
+      {
+        method: "POST",
+        body: JSON.stringify({ genome, seed: previewSeed }),
+        signal: controller.signal,
+      },
+    )
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        decodePreview(value);
+        setFrame(value);
+        setVisibleLayers(value.layerTimes.length);
+        setResetKey((key) => key + 1);
+      })
+      .catch((caught) => {
+        if (!controller.signal.aborted)
+          setPreviewError(
+            caught instanceof Error ? caught.message : "Preview failed.",
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPreviewBusy(false);
+      });
+    return () => controller.abort();
+    // Preview follows the genotype, not every generation or metric update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    lab.selectedId,
+    genomeKey,
+    previewSeed,
+    detail?.config.size,
+    detail?.config.steps,
+  ]);
+
+  useEffect(() => {
+    if (!lab.selectedId || requestedGeneration === null) {
+      setHistorical(null);
+      setHistoryBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    setHistoryBusy(true);
+    void request<GenerationSnapshot>(
+      `/api/runs/${encodeURIComponent(lab.selectedId)}/generations/${requestedGeneration}`,
+      { signal: controller.signal },
+    )
+      .then((value) => {
+        if (!controller.signal.aborted) {
+          setHistorical(value);
+          setSource("generation");
+          setSelected(null);
+        }
+      })
+      .catch((caught) => {
+        if (!controller.signal.aborted)
+          setLocalError(
+            caught instanceof Error
+              ? caught.message
+              : "Population snapshot unavailable.",
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setHistoryBusy(false);
+      });
+    return () => controller.abort();
+  }, [lab.selectedId, requestedGeneration]);
+
+  useEffect(() => {
+    if (!playing || !decoded) return;
     const timer = setInterval(
-      () => setVisibleLayers((layer) => Math.min(depth, layer + 1)),
-      130,
+      () =>
+        setVisibleLayers((value) => Math.min(decoded.layers.length, value + 1)),
+      100,
     );
     return () => clearInterval(timer);
-  }, [playing, depth]);
+  }, [playing, decoded]);
   useEffect(() => {
-    if (playing && currentLayer >= depth) setPlaying(false);
-  }, [playing, currentLayer, depth]);
+    if (playing && decoded && visibleLayers >= decoded.layers.length)
+      setPlaying(false);
+  }, [playing, decoded, visibleLayers]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (ruleOpen) return;
+      // A table/chart owns its handled keys; inspecting data must never start or
+      // pause an indefinite VM run as an accidental global-shortcut side effect.
+      if (event.defaultPrevented || document.querySelector("dialog[open]"))
+        return;
       if (event.key === "Escape") {
-        setPanel(null);
+        setFocus(false);
+        setViewOptions(false);
         return;
       }
       if (
         (event.target as HTMLElement).matches(
-          "input, select, button, textarea, summary, [contenteditable=true]",
+          "input, select, button, textarea, summary",
         )
       )
         return;
-      if (event.code === "Space" && vm.connection === "ready") {
+      if (
+        event.code === "Space" &&
+        run &&
+        !lab.busy &&
+        !["failed", "completed", "archived", "pausing"].includes(run.status)
+      ) {
         event.preventDefault();
-        setPlaying(false);
-        if (vm.running) vm.pause();
-        else if (!vm.pending) vm.start();
-      }
-      if (event.key === "." && !busy) {
-        event.preventDefault();
-        vm.step();
+        void lab.action(run.id, isActive ? "pause" : "start").catch(() => {});
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [vm, busy, ruleOpen]);
+  }, [run, lab, isActive]);
 
-  function updateConfig(update: Partial<Config>) {
-    setPlaying(false);
-    vm.replace({ ...experiment, config: { ...experiment.config, ...update } });
+  function openNew(base?: RunConfig, title = "New run") {
+    const config = structuredClone(base ?? DEFAULT_RUN_CONFIG);
+    if (!base)
+      config.evaluationWorkers = Math.max(
+        1,
+        Math.min(
+          config.evaluationWorkers,
+          lab.capacity.maxEvaluationWorkers || 1,
+        ),
+      );
+    setConfigurationTitle(title);
+    setNewConfig(config);
   }
-  function selectPreset(id: string) {
-    const preset = PRESETS.find((preset) => preset.id === id);
-    if (!preset) return;
-    vm.replace({
-      version: 1,
-      genome: [...preset.genome],
-      name: preset.name,
-      config: { ...experiment.config, seed: preset.seed },
-    });
-  }
-  function save() {
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(experiment, null, 2)], {
-        type: "application/json",
-      }),
+  function variant() {
+    if (!detail) return;
+    openNew(
+      {
+        ...structuredClone(detail.config),
+        name: `${detail.config.name.slice(0, 60)} · variant`,
+        seedGenome: [
+          ...(detail.snapshot?.champion.genome ?? detail.config.seedGenome),
+        ],
+      },
+      "New variant from champion",
     );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `polyp-${genomeId(experiment.genome)}.json`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  async function load(file?: File) {
+  function selectIndividual(value: Individual) {
+    setSelected({
+      individual: value,
+      generation: workingSnapshot?.generation ?? value.birthGeneration,
+    });
+    setSource("selected");
+    setPlaying(false);
+  }
+  function doAction(
+    action: "start" | "pause" | "step" | "checkpoint" | "archive",
+  ) {
+    if (run) void lab.action(run.id, action).catch(() => {});
+  }
+  async function exportCheckpoint() {
+    if (!run) return;
+    try {
+      await lab.action(run.id, "checkpoint");
+      download(`/api/runs/${encodeURIComponent(run.id)}/checkpoint`);
+    } catch {
+      /* Hook exposes the error. */
+    }
+  }
+  async function importFile(file?: File) {
     if (!file) return;
     try {
-      if (file.size > 100_000) throw new Error("File exceeds 100 KB.");
-      vm.replace(parseExperiment(await file.text()));
-      setFileError("");
-    } catch (error) {
-      setFileError(
-        error instanceof Error ? error.message : "Invalid experiment.",
+      if (file.size > 16 * 1024 * 1024)
+        throw new Error("Checkpoint exceeds 16 MiB.");
+      const text = await file.text();
+      const value = JSON.parse(text);
+      if (value?.format === "polyp-research-checkpoint")
+        await lab.importCheckpoint(value as RunCheckpoint);
+      else {
+        const founder = parseExperiment(text);
+        openNew(
+          {
+            ...structuredClone(DEFAULT_RUN_CONFIG),
+            name: founder.name || "Imported founder",
+            seedGenome: founder.genome,
+            size: founder.config.size,
+            steps: founder.config.steps,
+            seed: founder.config.seed,
+            trainingSeeds: [founder.config.randomSeed],
+          },
+          "New run from imported founder",
+        );
+      }
+      setLocalError("");
+    } catch (caught) {
+      setLocalError(
+        caught instanceof Error ? caught.message : "Import failed.",
       );
     }
-    if (fileInput.current) fileInput.current.value = "";
+    if (upload.current) upload.current.value = "";
   }
-  function toggleRun() {
-    setPlaying(false);
-    if (vm.running) vm.pause();
-    else vm.start();
-  }
-  const error = fileError || vm.error;
 
   return (
-    <div className="dev-environment">
-      <header className="toolbar" aria-label="Evolution controls">
+    <div ref={root} className={`research-app ${focus ? "focus-mode" : ""}`}>
+      <header className="research-toolbar" aria-label="Research controls">
         <button
-          className="run-button"
-          disabled={!vm.running && (vm.connection !== "ready" || vm.pending)}
-          onClick={toggleRun}
-          aria-label={vm.running ? "Pause evolution" : "Run evolution"}
-          aria-keyshortcuts="Space"
-          title="Run / pause · Space"
+          aria-label="Toggle run registry"
+          aria-pressed={showRuns && !focus}
+          onClick={() => {
+            setFocus(false);
+            setShowRuns((value) => !value);
+          }}
+          title="Runs"
         >
-          {vm.running ? <Pause size={14} /> : <Play size={14} />}
-          {vm.running ? "Pause" : "Run"}
+          <List size={16} />
         </button>
         <button
-          disabled={busy}
-          onClick={() => {
-            setPlaying(false);
-            vm.step();
-          }}
-          aria-label="Step evolution"
-          aria-keyshortcuts="."
-          title="One evolution epoch · ."
+          className="primary-action"
+          disabled={lab.loading || !lab.capacity.maxEvaluationWorkers}
+          onClick={() => openNew()}
         >
-          <SkipForward size={15} />
-          <span className="button-label">Step</span>
+          <Plus size={14} />
+          New run
         </button>
         <span className="toolbar-divider" />
-        <button
-          aria-label="Toggle controls"
-          aria-expanded={panel === "controls"}
-          className={panel === "controls" ? "selected" : ""}
-          onClick={() => setPanel(panel === "controls" ? null : "controls")}
-          title="Controls"
-        >
-          <Settings2 size={15} />
-          <span className="button-label">Controls</span>
-        </button>
-        <button
-          aria-label="Toggle diagnostics"
-          aria-expanded={panel === "diagnostics"}
-          className={panel === "diagnostics" ? "selected" : ""}
-          onClick={() =>
-            setPanel(panel === "diagnostics" ? null : "diagnostics")
-          }
-          title="Diagnostics"
-        >
-          <Activity size={15} />
-          <span className="button-label">Diagnostics</span>
-        </button>
+        <span className="toolbar-run-name" title={run?.name}>
+          {run?.name ?? "No run selected"}
+        </span>
+        {run && (
+          <span className={`run-status ${run.status}`}>{run.status}</span>
+        )}
         <span className="toolbar-space" />
         <button
-          aria-label="Edit rule"
-          title="Edit rule"
-          disabled={vm.pending}
+          disabled={
+            !run ||
+            lab.busy ||
+            ["failed", "completed", "archived", "pausing"].includes(run.status)
+          }
+          className={isActive ? "running-action" : ""}
+          aria-label={isActive ? "Pause run" : "Start run"}
+          title="Start / pause · Space"
+          onClick={() => doAction(isActive ? "pause" : "start")}
+        >
+          {isActive ? <Pause size={14} /> : <Play size={14} />}
+          <span className="toolbar-button-label">
+            {isActive ? "Pause" : "Start"}
+          </span>
+        </button>
+        <button
+          disabled={!run || run.status !== "paused" || lab.busy}
+          aria-label="Step one generation"
+          title="Advance one full GA generation"
+          onClick={() => doAction("step")}
+        >
+          <SkipForward size={15} />
+          <span className="toolbar-button-label">Step</span>
+        </button>
+        <button
+          disabled={!run || lab.busy || run.status === "archived"}
+          aria-label="Save checkpoint"
+          title="Write a durable checkpoint"
+          onClick={() => doAction("checkpoint")}
+        >
+          <Copy size={14} />
+          <span className="toolbar-button-label">Checkpoint</span>
+        </button>
+        <button
+          disabled={!run || lab.busy || !detail?.snapshot}
+          aria-label="Fork run"
+          title="Fork the complete population and RNG state, paused"
           onClick={() => {
-            vm.pause();
-            setPlaying(false);
-            setRuleOpen(true);
+            if (run) void lab.fork(run.id).catch(() => {});
           }}
         >
-          <SlidersHorizontal size={15} />
-          <span className="button-label">Rule</span>
-        </button>
-        <input
-          ref={fileInput}
-          type="file"
-          className="visually-hidden"
-          aria-label="Import experiment file"
-          accept=".json,application/json"
-          onChange={(event) => void load(event.target.files?.[0])}
-        />
-        <button
-          aria-label="Load experiment"
-          title="Load JSON"
-          onClick={() => fileInput.current?.click()}
-        >
-          <Upload size={15} />
-        </button>
-        <button aria-label="Save experiment" title="Save JSON" onClick={save}>
-          <Download size={15} />
-        </button>
-        <button
-          aria-label="Reset camera"
-          title="Reset camera"
-          onClick={() => setResetKey((key) => key + 1)}
-        >
-          <Focus size={15} />
+          <GitBranch size={15} />
+          <span className="toolbar-button-label">Fork</span>
         </button>
         <span className="toolbar-divider" />
-        {vm.connection === "disconnected" ? (
-          <button
-            className="reconnect-button"
-            onClick={vm.reconnect}
-            title="Reconnect to VM"
-          >
-            Reconnect
-          </button>
-        ) : (
-          <span
-            className={`connection-indicator ${vm.connection}`}
-            role="status"
-            aria-label={
-              vm.connection === "ready" ? "VM connected" : "Connecting to VM"
-            }
-            title={
-              vm.connection === "ready"
-                ? "Connected to VM worker"
-                : "Connecting to VM"
-            }
-          >
-            <i />
-            <span className="connection-label">VM</span>
-          </span>
-        )}
+        <button
+          className={`connection-badge ${lab.connection}`}
+          aria-label={
+            lab.connection === "connected"
+              ? "Live VM connection"
+              : "Reconnect live updates"
+          }
+          title={lab.connectionError || "Runs continue without this browser"}
+          onClick={lab.reconnect}
+        >
+          <i />
+          {lab.connection === "connected" ? "Live" : "Reconnect"}
+        </button>
       </header>
 
-      <main className="viewport" aria-label="Cellular automaton spacetime">
-        {simulation ? (
-          <Volume
-            simulation={simulation}
-            visibleLayers={currentLayer}
-            palette={palette}
-            mode={mode}
-            grain={grain}
-            autoRotate={autoRotate}
-            annotations={annotations}
-            resetKey={resetKey}
-            onLayerSelect={(layer) => {
-              if (!busy) {
-                setPlaying(false);
-                setVisibleLayers(layer + 1);
-              }
-            }}
-          />
-        ) : (
-          <div className="viewport-status" role="status">
-            {vm.connection === "disconnected"
-              ? "VM disconnected"
-              : "Connecting to VM…"}
-          </div>
-        )}
-        {simulation && vm.pending && !vm.running && (
-          <span className="pending-indicator" role="status">
-            Evaluating…
-          </span>
-        )}
-        {error && (
-          <div className="error-message" role="alert">
-            <span>{error}</span>
-            <button
-              aria-label="Dismiss error"
-              onClick={() => {
-                setFileError("");
-                vm.clearError();
-              }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
-
-        {panel && (
-          <aside
-            className="utility-panel"
-            aria-label={panel === "controls" ? "Controls" : "Diagnostics"}
-          >
-            <div className="panel-header">
-              <span>{panel === "controls" ? "Controls" : "Diagnostics"}</span>
-              <button aria-label="Close panel" onClick={() => setPanel(null)}>
-                <X size={15} />
+      <div className="research-body">
+        {showRuns && !focus && (
+          <aside className="run-registry" aria-label="Run registry">
+            <div className="registry-heading">
+              <span>Runs</span>
+              <div className="button-row">
+                <button
+                  aria-label="Refresh runs"
+                  title="Refresh runs"
+                  onClick={() => void lab.refresh()}
+                >
+                  <RefreshCw size={13} />
+                </button>
+                <button
+                  aria-label="Import checkpoint"
+                  title="Import checkpoint or founder"
+                  onClick={() => upload.current?.click()}
+                >
+                  <Upload size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="capacity-line">
+              <span>
+                {lab.capacity.maxEvaluationWorkers
+                  ? `${lab.capacity.allocatedWorkers} / ${lab.capacity.maxEvaluationWorkers} evaluators`
+                  : "Connecting…"}
+              </span>
+              <span>
+                {
+                  lab.runs.filter((value) => ACTIVE.includes(value.status))
+                    .length
+                }{" "}
+                active / queued
+              </span>
+            </div>
+            <div className="run-list">
+              {lab.runs
+                .filter((value) => showArchived || value.status !== "archived")
+                .map((value) => (
+                  <button
+                    key={value.id}
+                    className={`run-row ${lab.selectedId === value.id ? "selected" : ""}`}
+                    aria-label={`Select run ${value.name}`}
+                    aria-pressed={lab.selectedId === value.id}
+                    onClick={() => lab.select(value.id)}
+                  >
+                    <div className="run-row-title">
+                      <i className={`status-dot ${value.status}`} />
+                      <strong>{value.name}</strong>
+                    </div>
+                    <div className="run-row-meta">
+                      <span>
+                        {value.generation >= 0
+                          ? `g ${number(value.generation)}`
+                          : "not initialized"}
+                      </span>
+                      <span>{fitnessNumber(value.bestFitness)}</span>
+                    </div>
+                    <div className="run-row-sub">
+                      <span>
+                        {value.status}
+                        {value.queuePosition !== null
+                          ? ` #${value.queuePosition}`
+                          : ""}
+                      </span>
+                      <span>{duration(value.elapsedMs)}</span>
+                    </div>
+                  </button>
+                ))}
+              {!lab.loading && !lab.runs.length && (
+                <div className="empty-registry">
+                  No runs.
+                  <button onClick={() => openNew()}>Create experiment</button>
+                </div>
+              )}
+            </div>
+            <div className="registry-footer">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={(event) => setShowArchived(event.target.checked)}
+                />
+                Archived
+              </label>
+              <button
+                disabled={
+                  !run || isActive || lab.busy || run.status === "archived"
+                }
+                onClick={() => doAction("archive")}
+                title="Archive paused run"
+                aria-label="Archive run"
+              >
+                <Archive size={13} />
               </button>
             </div>
-            {panel === "controls" ? (
-              <div className="panel-body">
-                <details open>
-                  <summary>Evolution</summary>
-                  <label className="field">
-                    <span>Objective</span>
-                    <select
-                      aria-label="Objective"
-                      value={settings.objective}
-                      onChange={(event) =>
-                        vm.configure({
-                          objective: event.target.value as Objective,
-                        })
-                      }
-                    >
-                      <option value="complexity">Complexity</option>
-                      <option value="longevity">Finite longevity</option>
-                      <option value="growth">Growth</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Mutation</span>
-                    <div className="range-field">
-                      <input
-                        aria-label="Mutation rate"
-                        type="range"
-                        min="0"
-                        max="0.3"
-                        step="0.01"
-                        value={settings.mutationRate}
-                        onChange={(event) =>
-                          vm.configure({
-                            mutationRate: Number(event.target.value),
-                          })
-                        }
-                      />
-                      <output>
-                        {Math.round(settings.mutationRate * 100)}%
-                      </output>
-                    </div>
-                  </label>
-                  <label className="field">
-                    <span>Search seed</span>
-                    <input
-                      aria-label="Search seed"
-                      type="number"
-                      step="1"
-                      value={settings.randomSeed}
-                      onChange={(event) => {
-                        const n = event.target.valueAsNumber;
-                        if (Number.isSafeInteger(n))
-                          vm.configure({ randomSeed: n });
-                      }}
-                    />
-                  </label>
-                  <button
-                    className="secondary-button"
-                    onClick={() => {
-                      setPlaying(false);
-                      vm.reset();
-                    }}
-                  >
-                    Reset search
-                  </button>
-                </details>
-                <details open>
-                  <summary>Initial conditions</summary>
-                  <label className="field">
-                    <span>Rule preset</span>
-                    <select
-                      aria-label="Rule preset"
-                      value={selectedPreset}
-                      onChange={(event) => selectPreset(event.target.value)}
-                    >
-                      <option value="custom" disabled>
-                        Custom
-                      </option>
-                      {PRESETS.map((preset) => (
-                        <option key={preset.id} value={preset.id}>
-                          {preset.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Seed pattern</span>
-                    <select
-                      aria-label="Seed pattern"
-                      value={experiment.config.seed}
-                      onChange={(event) =>
-                        updateConfig({ seed: event.target.value as SeedMode })
-                      }
-                    >
-                      <option value="point">Point</option>
-                      <option value="cross">Cross</option>
-                      <option value="islands">Islands</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Seed</span>
-                    <input
-                      aria-label="Initial seed"
-                      type="number"
-                      step="1"
-                      value={experiment.config.randomSeed}
-                      onChange={(event) => {
-                        const n = event.target.valueAsNumber;
-                        if (Number.isSafeInteger(n))
-                          updateConfig({ randomSeed: n });
-                      }}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Grid</span>
-                    <select
-                      aria-label="Grid size"
-                      value={experiment.config.size}
-                      onChange={(event) =>
-                        updateConfig({ size: Number(event.target.value) })
-                      }
-                    >
-                      {[25, 33, 41, 49].map((size) => (
-                        <option key={size} value={size}>
-                          {size} × {size}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Time depth</span>
-                    <select
-                      aria-label="Time depth"
-                      value={experiment.config.steps}
-                      onChange={(event) =>
-                        updateConfig({ steps: Number(event.target.value) })
-                      }
-                    >
-                      {[24, 32, 48, 64].map((steps) => (
-                        <option key={steps} value={steps}>
-                          {steps}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </details>
-                <details>
-                  <summary>View</summary>
-                  <label className="field">
-                    <span>Rendering</span>
-                    <select
-                      aria-label="Rendering"
-                      value={mode}
-                      onChange={(event) =>
-                        setMode(event.target.value as typeof mode)
-                      }
-                    >
-                      <option value="voxels">Voxels</option>
-                      <option value="points">Points</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>Palette</span>
-                    <select
-                      aria-label="Palette"
-                      value={palette}
-                      onChange={(event) =>
-                        setPalette(event.target.value as typeof palette)
-                      }
-                    >
-                      <option value="mineral">Mineral</option>
-                      <option value="ember">Ember</option>
-                      <option value="ink">Ink</option>
-                    </select>
-                  </label>
-                  <label className="check-field">
-                    <input
-                      type="checkbox"
-                      checked={grain}
-                      onChange={(event) => setGrain(event.target.checked)}
-                    />
-                    Dither / grain
-                  </label>
-                  <label className="check-field">
-                    <input
-                      type="checkbox"
-                      checked={autoRotate}
-                      onChange={(event) => setAutoRotate(event.target.checked)}
-                    />
-                    Rotate
-                  </label>
-                  <label className="check-field">
-                    <input
-                      type="checkbox"
-                      checked={annotations}
-                      onChange={(event) => setAnnotations(event.target.checked)}
-                    />
-                    Reference grid
-                  </label>
-                  <label className="check-field">
-                    <input
-                      type="checkbox"
-                      checked={showTimeline}
-                      onChange={(event) => {
-                        setShowTimeline(event.target.checked);
-                        setPlaying(false);
-                      }}
-                    />
-                    Timeline
-                  </label>
-                </details>
-              </div>
-            ) : (
-              <div className="panel-body">
-                <dl className="diagnostics-list">
-                  <div>
-                    <dt>Execution</dt>
-                    <dd>VM / thread {vm.execution?.threadId ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Epoch</dt>
-                    <dd>{vm.epoch}</dd>
-                  </div>
-                  <div>
-                    <dt>Fitness</dt>
-                    <dd>{vm.score === null ? "—" : vm.score.toFixed(5)}</dd>
-                  </div>
-                  <div>
-                    <dt>Objective</dt>
-                    <dd>{settings.objective}</dd>
-                  </div>
-                  <div>
-                    <dt>Rule</dt>
-                    <dd>{genomeId(experiment.genome)}</dd>
-                  </div>
-                  <div>
-                    <dt>Occupied / layer</dt>
-                    <dd>{simulation?.population[currentLayer - 1] ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Activity</dt>
-                    <dd>{simulation?.activity.toFixed(5) ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>State diversity</dt>
-                    <dd>{simulation?.diversity.toFixed(5) ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Lifetime</dt>
-                    <dd>
-                      {simulation
-                        ? `${simulation.lifetime}${simulation.extinct ? "" : "+"}`
-                        : "—"}
-                    </dd>
-                  </div>
-                </dl>
-                {vm.history.length > 1 && (
-                  <div className="fitness-history">
-                    <span>Fitness</span>
-                    <PopulationChart
-                      values={vm.history}
-                      progress={1}
-                      evolution
-                    />
-                  </div>
-                )}
-              </div>
-            )}
           </aside>
         )}
-      </main>
 
-      {showTimeline && (
-        <footer className="timeline" aria-label="Time controls">
-          <button
-            disabled={busy || !simulation}
-            aria-label={playing ? "Pause time" : "Play time"}
-            title={playing ? "Pause time" : "Play time"}
-            onClick={() => {
-              if (!playing && currentLayer >= depth) setVisibleLayers(1);
-              setPlaying((value) => !value);
-            }}
-          >
-            {playing ? <Pause size={13} /> : <Play size={13} />}
-          </button>
-          <input
-            aria-label="Visible time layer"
-            type="range"
-            min="1"
-            max={depth}
-            value={currentLayer}
-            disabled={busy || !simulation}
-            onChange={(event) => {
-              setPlaying(false);
-              setVisibleLayers(Number(event.target.value));
-            }}
-          />
-          <output>
-            {currentLayer - 1}/{depth - 1}
-          </output>
-        </footer>
-      )}
-      <RuleEditor
-        open={ruleOpen}
-        genome={experiment.genome}
-        onClose={() => setRuleOpen(false)}
-        onApply={(genome) =>
-          vm.replace({ ...experiment, genome, name: "Custom" })
-        }
+        <main className="research-workspace">
+          {(actionError || lab.connectionError) && (
+            <div
+              className={`research-error ${actionError ? "" : "connection-warning"}`}
+              role="alert"
+            >
+              <span>{actionError || lab.connectionError}</span>
+              {actionError && (
+                <button
+                  aria-label="Dismiss error"
+                  onClick={() => {
+                    setLocalError("");
+                    lab.clearError();
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          )}
+          {!detail ? (
+            <div className="no-run-view">
+              <span>
+                {lab.loading
+                  ? "Loading runs…"
+                  : lab.selectedId
+                    ? "Loading experiment…"
+                    : "Select or create an experiment."}
+              </span>
+              {!lab.selectedId && (
+                <button
+                  className="primary-action"
+                  disabled={!lab.capacity.maxEvaluationWorkers}
+                  onClick={() => openNew()}
+                >
+                  <Plus size={14} />
+                  New run
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              {!focus && showMetrics && (
+                <section className="run-metrics" aria-label="Run metrics">
+                  <div>
+                    <span>Generation</span>
+                    <strong>
+                      {run!.generation < 0 ? "—" : number(run!.generation)}
+                      <small>
+                        {detail.config.maxGenerations
+                          ? ` / ${number(detail.config.maxGenerations)}`
+                          : " / ∞"}
+                      </small>
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Best ever</span>
+                    <strong title={String(run!.bestFitness ?? "Not evaluated")}>
+                      {fitnessNumber(run!.bestFitness)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Population mean</span>
+                    <strong title={String(run!.meanFitness ?? "Not evaluated")}>
+                      {fitnessNumber(run!.meanFitness)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Held-out</span>
+                    <strong
+                      title={String(run!.validationFitness ?? "Not evaluated")}
+                    >
+                      {fitnessNumber(run!.validationFitness)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Fixture evals / s</span>
+                    <strong>{number(run!.evalsPerSecond, 1)}</strong>
+                  </div>
+                  <div>
+                    <span>Evaluations</span>
+                    <strong>{number(run!.evaluations)}</strong>
+                  </div>
+                  <div>
+                    <span>Checkpoint</span>
+                    <strong className="metric-time">
+                      {time(run!.checkpointAt)}
+                    </strong>
+                  </div>
+                  <button
+                    aria-label="Hide run metrics"
+                    title="Hide metrics"
+                    onClick={() => setShowMetrics(false)}
+                  >
+                    <X size={13} />
+                  </button>
+                </section>
+              )}
+              <section
+                className="champion-pane"
+                aria-label="Champion inspector"
+              >
+                <div className="inspector-toolbar">
+                  <select
+                    aria-label="Inspected candidate"
+                    value={source}
+                    onChange={(event) => {
+                      setSource(event.target.value as typeof source);
+                      setPlaying(false);
+                    }}
+                  >
+                    <option value="best">Best ever</option>
+                    <option value="generation">Generation best</option>
+                    <option value="selected" disabled={!selected}>
+                      Selected individual
+                    </option>
+                  </select>
+                  <span className="candidate-identity" title={individual?.id}>
+                    {individual
+                      ? `${individual.id} · ${fitnessNumber(individual.fitness)}`
+                      : "Founder · not evaluated"}
+                  </span>
+                  <span className="toolbar-space" />
+                  {frame && frame.stride > 1 && (
+                    <span
+                      className="sample-badge"
+                      title="Preview is sampled. Fitness uses every CA timestep."
+                    >
+                      preview ×{frame.stride}
+                    </span>
+                  )}
+                  <button
+                    aria-label="Reset specimen camera"
+                    title="Fit specimen"
+                    onClick={() => setResetKey((key) => key + 1)}
+                  >
+                    <Focus size={15} />
+                  </button>
+                  <button
+                    aria-label="Inspector view options"
+                    title="View options"
+                    aria-expanded={viewOptions}
+                    onClick={() => setViewOptions((value) => !value)}
+                  >
+                    <Settings2 size={15} />
+                  </button>
+                  <button
+                    aria-label={focus ? "Exit focus view" : "Focus champion"}
+                    title="Focus champion"
+                    onClick={() => setFocus((value) => !value)}
+                  >
+                    {focus ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                  </button>
+                </div>
+                <div className="champion-canvas">
+                  {renderSimulation && (
+                    <Volume
+                      simulation={renderSimulation}
+                      visibleLayers={
+                        displayMode === "slice" ? 1 : visibleLayers
+                      }
+                      palette={palette}
+                      mode={material}
+                      grain={grain}
+                      autoRotate={autoRotate}
+                      annotations={annotations}
+                      fitMode="specimen"
+                      view={displayMode === "slice" ? "top" : view}
+                      resetKey={resetKey}
+                      onLayerSelect={(index) => {
+                        if (displayMode === "volume") {
+                          setPlaying(false);
+                          setVisibleLayers(index + 1);
+                        }
+                      }}
+                    />
+                  )}
+                  {(!frame || previewBusy) && (
+                    <div
+                      className={`preview-loading ${frame ? "subtle" : ""}`}
+                      role="status"
+                    >
+                      {previewBusy ? "Evaluating preview…" : "No preview"}
+                    </div>
+                  )}
+                  {previewError && (
+                    <div className="preview-error" role="alert">
+                      {previewError}
+                    </div>
+                  )}
+                  {viewOptions && (
+                    <div className="view-options" aria-label="View options">
+                      <label>
+                        <span>Mode</span>
+                        <select
+                          aria-label="Preview display"
+                          value={displayMode}
+                          onChange={(event) =>
+                            setDisplayMode(
+                              event.target.value as typeof displayMode,
+                            )
+                          }
+                        >
+                          <option value="volume">Spacetime volume</option>
+                          <option value="slice">2D slice</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Camera</span>
+                        <select
+                          aria-label="Camera view"
+                          value={view}
+                          onChange={(event) => {
+                            setView(event.target.value as typeof view);
+                            setResetKey((key) => key + 1);
+                          }}
+                        >
+                          <option value="iso">Isometric</option>
+                          <option value="top">Top</option>
+                          <option value="front">Front</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Material</span>
+                        <select
+                          aria-label="Render material"
+                          value={material}
+                          onChange={(event) =>
+                            setMaterial(event.target.value as typeof material)
+                          }
+                        >
+                          <option value="voxels">Voxels</option>
+                          <option value="points">Points</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Palette</span>
+                        <select
+                          aria-label="Palette"
+                          value={palette}
+                          onChange={(event) =>
+                            setPalette(event.target.value as typeof palette)
+                          }
+                        >
+                          <option value="mineral">Mineral</option>
+                          <option value="ember">Ember</option>
+                          <option value="ink">Ink</option>
+                        </select>
+                      </label>
+                      <label className="check-field">
+                        <input
+                          type="checkbox"
+                          checked={grain}
+                          onChange={(event) => setGrain(event.target.checked)}
+                        />
+                        Dither
+                      </label>
+                      <label className="check-field">
+                        <input
+                          type="checkbox"
+                          checked={autoRotate}
+                          onChange={(event) =>
+                            setAutoRotate(event.target.checked)
+                          }
+                        />
+                        Orbit
+                      </label>
+                      <label className="check-field">
+                        <input
+                          type="checkbox"
+                          checked={annotations}
+                          onChange={(event) =>
+                            setAnnotations(event.target.checked)
+                          }
+                        />
+                        Reference grid
+                      </label>
+                      <label className="check-field">
+                        <input
+                          type="checkbox"
+                          checked={showMetrics}
+                          onChange={(event) =>
+                            setShowMetrics(event.target.checked)
+                          }
+                        />
+                        Run metrics
+                      </label>
+                    </div>
+                  )}
+                </div>
+                <div className="ca-timeline">
+                  <button
+                    aria-label={
+                      playing ? "Pause CA playback" : "Play CA history"
+                    }
+                    disabled={!decoded}
+                    onClick={() => {
+                      if (
+                        !playing &&
+                        decoded &&
+                        visibleLayers >= decoded.layers.length
+                      )
+                        setVisibleLayers(1);
+                      setPlaying((value) => !value);
+                    }}
+                  >
+                    {playing ? <Pause size={12} /> : <Play size={12} />}
+                  </button>
+                  <span>CA t</span>
+                  <input
+                    type="range"
+                    aria-label="CA timestep"
+                    min="1"
+                    max={decoded?.layers.length ?? 1}
+                    value={decoded ? visibleLayers : 1}
+                    disabled={!decoded}
+                    onChange={(event) => {
+                      setPlaying(false);
+                      setVisibleLayers(Number(event.target.value));
+                    }}
+                  />
+                  <output>
+                    {actualTime} / {Math.max(0, (frame?.totalSteps ?? 1) - 1)}
+                  </output>
+                  <select
+                    aria-label="Preview fixture"
+                    value={String(previewSeed)}
+                    onChange={(event) =>
+                      setFixtureSeed(Number(event.target.value))
+                    }
+                  >
+                    {detail.config.trainingSeeds.map((seed) => (
+                      <option key={`t${seed}`} value={seed}>
+                        Train {seed}
+                      </option>
+                    ))}
+                    {detail.config.validationSeeds.map((seed) => (
+                      <option key={`v${seed}`} value={seed}>
+                        Held-out {seed}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </section>
+
+              {!focus && (
+                <section
+                  className={`analysis-pane ${showAnalysis ? "" : "collapsed"}`}
+                  aria-label="Genetic analysis"
+                >
+                  <header className="analysis-tabs">
+                    <div role="tablist" aria-label="Analysis views">
+                      {(Object.keys(panelNames) as Panel[]).map((key) => (
+                        <button
+                          key={key}
+                          role="tab"
+                          aria-selected={panel === key && showAnalysis}
+                          onClick={() => {
+                            setPanel(key);
+                            setShowAnalysis(true);
+                          }}
+                        >
+                          {panelNames[key]}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="toolbar-space" />
+                    {workingSnapshot && (
+                      <button
+                        className="analysis-generation"
+                        aria-label={
+                          historical
+                            ? "Return to live population"
+                            : "Freeze population view"
+                        }
+                        title={
+                          historical
+                            ? "Follow the live population"
+                            : "Freeze this population without pausing training"
+                        }
+                        onClick={() => {
+                          if (historical) {
+                            setRequestedGeneration(null);
+                            setHistorical(null);
+                            setSource("best");
+                          } else if (detail.snapshot) {
+                            setHistorical(detail.snapshot);
+                            setSource("generation");
+                            setSelected(null);
+                          }
+                        }}
+                      >
+                        {historical
+                          ? requestedGeneration === null
+                            ? "pinned"
+                            : "archive"
+                          : "live"}{" "}
+                        g {number(workingSnapshot.generation)}
+                      </button>
+                    )}
+                    <button
+                      aria-label={
+                        showAnalysis
+                          ? "Hide analysis panels"
+                          : "Show analysis panels"
+                      }
+                      onClick={() => setShowAnalysis((value) => !value)}
+                    >
+                      {showAnalysis ? (
+                        <ChevronDown size={14} />
+                      ) : (
+                        <ChevronRight size={14} />
+                      )}
+                    </button>
+                  </header>
+                  {showAnalysis && (
+                    <div
+                      className="analysis-content"
+                      role="tabpanel"
+                      aria-label={panelNames[panel]}
+                    >
+                      {historyBusy && (
+                        <span className="analysis-busy" role="status">
+                          Loading population…
+                        </span>
+                      )}
+                      {panel === "population" && (
+                        <PopulationView
+                          snapshot={workingSnapshot}
+                          selectedId={
+                            source === "selected"
+                              ? (selected?.individual.id ?? null)
+                              : (individual?.id ?? null)
+                          }
+                          onSelect={selectIndividual}
+                        />
+                      )}
+                      {panel === "genetics" && (
+                        <GeneticsView
+                          individual={individual}
+                          snapshot={workingSnapshot}
+                        />
+                      )}
+                      {panel === "history" && (
+                        <HistoryView
+                          history={detail.history}
+                          snapshots={detail.snapshots}
+                          selectedGeneration={requestedGeneration}
+                          onSelectGeneration={(generation) => {
+                            setRequestedGeneration(generation);
+                            if (generation === null) {
+                              setHistorical(null);
+                              setSource("best");
+                            }
+                          }}
+                        />
+                      )}
+                      {panel === "compare" && (
+                        <ComparisonView
+                          runs={lab.runs}
+                          selectedRunId={detail.summary.id}
+                        />
+                      )}
+                      {panel === "parameters" && (
+                        <div className="parameters-view">
+                          <div className="parameter-actions">
+                            <button onClick={variant}>
+                              <GitBranch size={13} />
+                              New variant from champion
+                            </button>
+                            <button
+                              onClick={() => void exportCheckpoint()}
+                              disabled={lab.busy}
+                            >
+                              <Download size={13} />
+                              Export checkpoint
+                            </button>
+                            <button
+                              onClick={() =>
+                                download(
+                                  `/api/runs/${detail.summary.id}/metrics.csv`,
+                                )
+                              }
+                            >
+                              <Download size={13} />
+                              Metrics CSV
+                            </button>
+                            <span>
+                              Immutable configuration · generation-boundary
+                              checkpoints
+                            </span>
+                          </div>
+                          <div className="parameters-columns">
+                            <dl>
+                              <div>
+                                <dt>Run ID</dt>
+                                <dd>{detail.summary.id}</dd>
+                              </div>
+                              <div>
+                                <dt>Engine model</dt>
+                                <dd>{lab.modelVersion ?? "—"}</dd>
+                              </div>
+                              <div>
+                                <dt>Threads allocated</dt>
+                                <dd>{detail.summary.workerCount}</dd>
+                              </div>
+                              <div>
+                                <dt>Training time</dt>
+                                <dd>{duration(detail.summary.elapsedMs)}</dd>
+                              </div>
+                              <div>
+                                <dt>Generation time</dt>
+                                <dd>
+                                  {number(detail.summary.generationMs, 1)} ms
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Cache hits</dt>
+                                <dd>{number(detail.summary.cacheHits)}</dd>
+                              </div>
+                              <div>
+                                <dt>Allelic entropy</dt>
+                                <dd>{detail.summary.diversity.toFixed(4)}</dd>
+                              </div>
+                              <div>
+                                <dt>Unique rules</dt>
+                                <dd>{detail.summary.uniqueGenomes}</dd>
+                              </div>
+                              <div>
+                                <dt>Retained history</dt>
+                                <dd>
+                                  {detail.history.length} points /{" "}
+                                  {detail.snapshots.length} populations
+                                </dd>
+                              </div>
+                              {detail.summary.parentRunId && (
+                                <div>
+                                  <dt>Parent run</dt>
+                                  <dd>{detail.summary.parentRunId}</dd>
+                                </div>
+                              )}
+                              {detail.summary.stopReason && (
+                                <div>
+                                  <dt>Stop reason</dt>
+                                  <dd>{detail.summary.stopReason}</dd>
+                                </div>
+                              )}
+                              {detail.summary.error && (
+                                <div>
+                                  <dt>Error</dt>
+                                  <dd>{detail.summary.error}</dd>
+                                </div>
+                              )}
+                            </dl>
+                            <pre aria-label="Run configuration">
+                              {JSON.stringify(detail.config, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+      <input
+        type="file"
+        ref={upload}
+        className="visually-hidden"
+        aria-label="Import research checkpoint"
+        accept=".json,application/json"
+        onChange={(event) => void importFile(event.target.files?.[0])}
       />
+      {newConfig && (
+        <RunDialog
+          initial={newConfig}
+          title={configurationTitle}
+          maxWorkers={lab.capacity.maxEvaluationWorkers}
+          busy={lab.busy}
+          onClose={() => setNewConfig(null)}
+          onCreate={lab.create}
+        />
+      )}
     </div>
   );
 }

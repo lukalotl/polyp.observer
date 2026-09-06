@@ -13,7 +13,10 @@
   },
   "include": [
     "server/**/*.ts",
-    "src/protocol.ts",
+    "src/research/types.ts",
+    "src/research/config.ts",
+    "src/research/engine.ts",
+    "src/research/evaluate.ts",
     "src/simulation/index.ts",
     "src/simulation/genetics.ts"
   ]

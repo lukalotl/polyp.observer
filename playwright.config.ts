@@ -1,9 +1,13 @@
 import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:5173";
-// Use Playwright's managed browser normally; the workspace VM also supplies a
-// native Chromium. An explicit override makes the same suite portable to CI.
+// Never silently reuse a researcher's live process/data. CI and local runs get
+// their own real VM service, worker pool and persistent job directory. Set an
+// external base URL explicitly only when testing an authorized existing server.
+const external = process.env.PLAYWRIGHT_BASE_URL;
+const clientPort = process.env.PLAYWRIGHT_CLIENT_PORT ?? "5199";
+const apiPort = process.env.PLAYWRIGHT_API_PORT ?? "8799";
+const baseURL = external ?? `http://127.0.0.1:${clientPort}`;
 const executablePath =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
   (existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : undefined);
@@ -14,13 +18,13 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  timeout: 45_000,
-  expect: { timeout: 10_000 },
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL,
     browserName: "chromium",
-    viewport: { width: 1440, height: 1080 },
+    viewport: { width: 1440, height: 1000 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     launchOptions: {
@@ -32,11 +36,20 @@ export default defineConfig({
       ],
     },
   },
-  webServer: {
-    command: "npm run dev",
-    // A rendered HTML shell is not readiness: this must proxy to the real VM API.
-    url: `${baseURL.replace(/\/$/, "")}/api/health`,
-    reuseExistingServer: true,
-    timeout: 30_000,
-  },
+  webServer: external
+    ? undefined
+    : {
+        command: "npm run dev",
+        env: {
+          CLIENT_PORT: clientPort,
+          API_PORT: apiPort,
+          POLYP_RUNS_DIR:
+            process.env.PLAYWRIGHT_RUNS_DIR ??
+            `.polyp/e2e/session-${process.pid}-${Date.now()}`,
+        },
+        // A static HTML shell is not readiness: the production API must answer.
+        url: `${baseURL}/api/health`,
+        reuseExistingServer: false,
+        timeout: 60_000,
+      },
 });

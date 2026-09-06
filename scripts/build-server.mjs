@@ -5,7 +5,12 @@ import { resolve } from "node:path";
 export const root = fileURLToPath(new URL("../", import.meta.url));
 export const serverBuildOptions = {
   absWorkingDir: root,
-  entryPoints: ["server/index.ts", "server/worker.ts"],
+  entryPoints: [
+    "server/index.ts",
+    "server/coordinator-worker.ts",
+    "server/evaluation-worker.ts",
+    "server/preview-worker.ts",
+  ],
   outdir: ".server",
   bundle: true,
   platform: "node",

@@ -4,6 +4,7 @@ import {
   packVolume,
   visibleCount,
   VOXEL_WIDTH,
+  layerTimeLabel,
 } from "./volumeData";
 import {
   instanceColors,
@@ -106,5 +107,41 @@ describe("the spacetime render contract", () => {
     const points = makePointMaterial();
     expect(points.material.type).toBe("PointsMaterial");
     points.material.dispose();
+  });
+});
+
+describe("sampled specimen geometry", () => {
+  it("records occupied bounds with physical voxel thickness, including off-center cells", () => {
+    const data = packVolume({
+      size: 5,
+      layers: [
+        Uint8Array.from({ length: 25 }, (_, i) => (i === 3 ? 1 : 0)),
+        new Uint8Array(25),
+        Uint8Array.from({ length: 25 }, (_, i) => (i === 24 ? 2 : 0)),
+      ],
+    });
+    expect(data.bounds?.min[0]).toBeCloseTo(1 - VOXEL_WIDTH / 2);
+    expect(data.bounds?.max[0]).toBeCloseTo(2 + VOXEL_WIDTH / 2);
+    expect(data.bounds?.min[1]).toBeCloseTo((-LAYER_HEIGHT * VOXEL_WIDTH) / 2);
+    expect(data.bounds?.max[1]).toBeCloseTo(
+      2 * LAYER_HEIGHT + (LAYER_HEIGHT * VOXEL_WIDTH) / 2,
+    );
+    expect(data.bounds?.min[2]).toBeCloseTo(-2 - VOXEL_WIDTH / 2);
+    expect(data.bounds?.max[2]).toBeCloseTo(2 + VOXEL_WIDTH / 2);
+    expect(
+      packVolume({ size: 1, layers: [Uint8Array.of(0)] }).bounds,
+    ).toBeNull();
+  });
+  it("keeps sampled array-index geometry and callbacks separate from actual timestep labels", () => {
+    const data = packVolume({
+      size: 1,
+      layers: [Uint8Array.of(1), Uint8Array.of(2), Uint8Array.of(3)],
+      layerTimes: [0, 8, 19],
+    });
+    expect(Array.from(data.layers)).toEqual([0, 1, 2]);
+    expect(data.positions[7]).toBeCloseTo(2 * LAYER_HEIGHT);
+    expect(layerTimeLabel(2, [0, 8, 19])).toBe("19");
+    expect(layerTimeLabel(2)).toBe("2");
+    expect(layerTimeLabel(2, [0, 8])).toBe("?");
   });
 });

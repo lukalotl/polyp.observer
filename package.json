@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "dev:client": "vite --host 0.0.0.0 --port 5173 --strictPort",
-    "dev:server": "npm run build:server && PORT=8787 node .server/index.js",
+    "dev:server": "npm run build:server && POLYP_RUNS_DIR=.polyp/research.dev PORT=8787 node .server/index.js",
     "build:server": "node scripts/build-server.mjs",
     "test:server": "node scripts/test-server.mjs"
   },

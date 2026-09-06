@@ -36,7 +36,7 @@ async function stop(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   const ended = once(child, "exit");
   child.kill("SIGTERM");
-  const force = setTimeout(() => child.kill("SIGKILL"), 3000);
+  const force = setTimeout(() => child.kill("SIGKILL"), 30_000);
   force.unref();
   await ended;
   clearTimeout(force);
@@ -70,6 +70,9 @@ try {
                 if (stopping) return;
                 backend = launch([".server/index.js"], {
                   PORT: process.env.API_PORT ?? "8787",
+                  // Never auto-resume production jobs in a dev watcher.
+                  POLYP_RUNS_DIR:
+                    process.env.POLYP_RUNS_DIR ?? ".polyp/research.dev",
                 });
                 const current = backend;
                 backend.on("exit", (code, signal) => {
