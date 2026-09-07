@@ -422,6 +422,16 @@ export default function App() {
     setConfigurationTitle(title);
     setNewConfig(config);
   }
+  function forkParameters() {
+    if (!detail) return;
+    openNew(
+      {
+        ...structuredClone(detail.config),
+        name: `${detail.config.name.slice(0, 73)} (fork)`,
+      },
+      "Fork run",
+    );
+  }
   function variant() {
     if (!detail) return;
     openNew(
@@ -561,12 +571,10 @@ export default function App() {
           <span className="toolbar-button-label">Checkpoint</span>
         </button>
         <button
-          disabled={!run || lab.busy || !detail?.snapshot}
+          disabled={!run || lab.busy}
           aria-label="Fork run"
-          title="Fork the complete population and RNG state, paused"
-          onClick={() => {
-            if (run) void lab.fork(run.id).catch(() => {});
-          }}
+          title="Edit a copy of this run’s parameters and create a fresh run"
+          onClick={forkParameters}
         >
           <GitBranch size={15} />
           <span className="toolbar-button-label">Fork</span>

@@ -614,13 +614,20 @@ test("a VM population continues while its only browser is closed, restores, paus
   await screenArtifact(returned, testInfo, "restored-persistent-population");
 });
 
-test("downloaded checkpoints and UI forks retain exact population, RNG and deterministic next generation", async ({
+test("Fork edits parameters for a fresh run while checkpoint import retains exact progress", async ({
   page,
   request,
 }, testInfo) => {
-  const original = await createRun(page, testInfo);
-  await step(page, request, original.summary.id); // Generation 0 is a full evaluation.
-  await step(page, request, original.summary.id); // Generation 1 has recorded parents/mutations.
+  const original = await createRun(page, testInfo, false, {
+    initialization: "random",
+    incentives: [
+      presetIncentive("lightExposure"),
+      presetIncentive("avoidRepeatedReuse"),
+    ],
+  });
+  await expect(page.getByRole("button", { name: "Fork run" })).toBeEnabled();
+  await step(page, request, original.summary.id);
+  await step(page, request, original.summary.id);
   const exported = await exportThroughUI(page, testInfo);
   expect(exported.checkpoint).toMatchObject({
     format: "polyp-research-checkpoint",
@@ -629,26 +636,66 @@ test("downloaded checkpoints and UI forks retain exact population, RNG and deter
     sourceRunId: original.summary.id,
   });
   expect(exported.checkpoint.state?.population).toHaveLength(8);
-  const forking = page.waitForResponse(
+  const posts = observations.get(page)!.mutations.length;
+  await page.getByRole("button", { name: "Fork run" }).click();
+  let creator = page.getByRole("dialog", { name: "Fork run", exact: true });
+  await creator.getByLabel("Edit configuration JSON").click();
+  const copied = JSON.parse(
+    await creator.getByLabel("Configuration JSON").inputValue(),
+  );
+  expect(copied).toEqual({
+    ...original.config,
+    name: `${original.config.name} (fork)`,
+  });
+  expect(observations.get(page)!.mutations).toHaveLength(posts);
+  await creator.getByLabel("Close run configuration").click();
+  expect(observations.get(page)!.mutations).toHaveLength(posts);
+  await page.getByRole("button", { name: "Fork run" }).click();
+  creator = page.getByRole("dialog", { name: "Fork run", exact: true });
+  await creator.getByLabel("CA horizon", { exact: true }).fill("40");
+  await creator.getByLabel("Mutation probability", { exact: true }).fill("0.2");
+  await creator.getByLabel("Incentive 2 weight").fill("3");
+  await screenArtifact(page, testInfo, "editable-fork-parameters");
+  const creating = page.waitForResponse(
     (response) =>
-      response.url().endsWith(`/api/runs/${original.summary.id}/fork`) &&
+      response.url().endsWith("/api/runs") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Fork run" }).click();
-  const forkResponse = await forking;
+  await creator
+    .getByRole("button", { name: "Create paused", exact: true })
+    .click();
+  const forkResponse = await creating;
   expect(forkResponse.status()).toBe(201);
   const fork = (await forkResponse.json()) as RunDetail;
   createdIds.add(fork.summary.id);
-  expect(fork.summary).toMatchObject({
-    parentRunId: original.summary.id,
-    status: "paused",
-    generation: exported.checkpoint.state!.generation,
+  expect(fork.config).toEqual({
+    ...copied,
+    steps: 40,
+    mutationRate: 0.2,
+    incentives: [copied.incentives[0], { ...copied.incentives[1], weight: 3 }],
   });
-  await waitForPaused(page, request, fork.summary.id);
-  const forkState = (await checkpoint(request, fork.summary.id)).state!;
-  expect(forkState.population).toEqual(exported.checkpoint.state!.population);
-  expect(forkState.rngState).toBe(exported.checkpoint.state!.rngState);
-  const forkNext = await step(page, request, fork.summary.id);
+  expect(fork.summary).toMatchObject({
+    parentRunId: null,
+    status: "paused",
+    generation: -1,
+  });
+  expect(fork.snapshot).toBeNull();
+  expect(fork.history).toEqual([]);
+  expect(fork.improvements).toEqual([]);
+  expect((await checkpoint(request, fork.summary.id)).state).toBeNull();
+  const fresh = await step(page, request, fork.summary.id);
+  expect(fresh.summary.generation).toBe(0);
+  expect(
+    fresh.snapshot!.population.every(
+      (item) => item.birthGeneration === 0 && item.parents.length === 0,
+    ),
+  ).toBe(true);
+  expect(
+    observations.get(page)!.mutations.some((path) => path.endsWith("/fork")),
+  ).toBe(false);
+  expect((await detail(request, original.summary.id)).summary.generation).toBe(
+    exported.checkpoint.state!.generation,
+  );
   const chooser = page.waitForEvent("filechooser");
   await page
     .getByRole("button", { name: "Import checkpoint", exact: true })
@@ -675,12 +722,18 @@ test("downloaded checkpoints and UI forks retain exact population, RNG and deter
   expect(importedState.rngState).toBe(exported.checkpoint.state!.rngState);
   await waitForPaused(page, request, imported.summary.id);
   const importedNext = await step(page, request, imported.summary.id);
-  expect(importedNext.snapshot).toEqual(forkNext.snapshot);
+  await page
+    .getByRole("button", {
+      name: `Select run ${original.config.name}`,
+      exact: true,
+      pressed: false,
+    })
+    .click();
+  await waitForPaused(page, request, original.summary.id);
+  const originalNext = await step(page, request, original.summary.id);
+  expect(importedNext.snapshot).toEqual(originalNext.snapshot);
   expect((await checkpoint(request, imported.summary.id)).state!.rngState).toBe(
-    (await checkpoint(request, fork.summary.id)).state!.rngState,
-  );
-  expect((await detail(request, original.summary.id)).summary.generation).toBe(
-    exported.checkpoint.state!.generation,
+    (await checkpoint(request, original.summary.id)).state!.rngState,
   );
   await page.getByRole("tab", { name: "Compare", exact: true }).click();
   await page
@@ -695,7 +748,7 @@ test("downloaded checkpoints and UI forks retain exact population, RNG and deter
       exact: true,
     }),
   ).toBeVisible();
-  await screenArtifact(page, testInfo, "deterministic-fork-comparison");
+  await screenArtifact(page, testInfo, "fresh-fork-comparison");
 });
 
 test("finite run exposes real ancestry, retained generations, CA closeups and immutable parameters", async ({

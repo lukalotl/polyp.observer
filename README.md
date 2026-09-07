@@ -49,16 +49,19 @@ The public website uses Vercel plus a persistent VM backend. See
   cell-timesteps per fixture means both maxima cannot be combined. The dialog
   shows the maximum horizon for the chosen grid. Larger experiments take longer
   per generation; the genetic generation limit is separate.
-- **Default objective: finite longevity.** Fitness is lifetime / (horizon − 1)
-  only when extinction is observed; a rule still alive at the cutoff scores zero.
-  Complexity and Growth remain selectable. Existing runs retain their recorded
-  objective; changing it requires a new experiment.
-- **Boundary disqualification**: new runs reject contact with any spatial edge
-  (left, right, front, back) and survival to the final timestep by default.
-  Each policy has its own checkbox. One rejected training fixture makes overall
-  fitness zero; held-out disqualification stays separate. The inspector reports
-  contact times, and the population marks rejected candidates `DQ`. Existing
-  runs keep their original policy; create a variant to change it.
+- **Scoring incentives**: add weighted presets or choose **New incentive** to
+  write a safe math formula using the measurement catalog. Formula results are
+  clamped to 0–1 and combined by normalized weights. Finite longevity is the
+  default; complexity, growth, finite cell counts, light exposure and reuse
+  penalties are available. `exposedCells` counts the history footprint;
+  `reusedCells`, `reuseEvents` and `cellDeaths` track reuse and death separately.
+  Existing runs retain their recorded scoring configuration.
+- **Hard constraints**: the scoring section includes independent spatial-edge
+  and time-cutoff disqualification switches, both on by default. A rejected
+  fixture contributes zero; mean aggregation still credits successful fixtures,
+  while worst-fixture aggregation uses the lowest score. Held-out scores are
+  separate. The inspector reports contact times; `F` marks a candidate with any
+  failed fixture. Older runs keep their recorded failure policy.
 - **New run**: parameter fields or complete JSON configuration. Population,
   elitism, tournament/rank selection, crossover type/probability, per-locus
   mutation, immigrants, initialization, search RNG, fixture seeds, scoring
@@ -84,11 +87,17 @@ The public website uses Vercel plus a persistent VM backend. See
   previews never change fitness evaluation.
 - **Compare**: retained history on a generation or evaluation-count axis.
   Different evaluation configurations are flagged as not directly comparable.
-- **Checkpoint / Fork / Export / Import**: preserve the complete population,
-  RNG state, IDs, ancestry, bounded fitness cache and counters. A fork has a new
-  identity and does not alter the source. New variants start from the champion
-  with a new immutable configuration. Old single-rule JSON files can be imported
-  as founders, not misrepresented as resumable population checkpoints.
+- **Fork**: reopens the run creator with a copy of the selected run's parameters,
+  including its configured founder and incentives. Edit them and choose Create
+  paused or Create & start to initialize a fresh population. Opening or cancelling
+  the dialog creates nothing and never changes the source run. Fork works before
+  the source has initialized, too.
+- **Checkpoint / Export / Import**: preserve and restore the complete population,
+  RNG state, IDs, ancestry, bounded fitness cache and counters. Use checkpoint
+  import to resume saved progress. **New variant from champion** explicitly uses
+  the current champion as a founder for a fresh experiment. Old single-rule JSON
+  files can be imported as founders, not as resumable population checkpoints.
+
 
 Run registry, metrics and analysis panels are hideable. No marketing panels or
 separate demonstration mode. Space starts/pauses the selected run; Escape exits

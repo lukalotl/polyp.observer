@@ -1163,6 +1163,94 @@ describe("API-backed research workbench", () => {
     unmount();
     expect(http.mutations).toHaveLength(before);
   });
+  it.each([false, true])(
+    "opens Fork as an editable copy of parameters, including before initialization (%s)",
+    async (uninitialized) => {
+      const original = (
+        await researchFixture("fork-source", 2, {
+          initialization: "random",
+          seed: "soup",
+          soupSize: 6,
+          trainingSeeds: [11, 12],
+          validationSeeds: [21],
+          incentives: [
+            presetIncentive("lightExposure"),
+            { ...presetIncentive("avoidRepeatedReuse"), weight: 3 },
+          ],
+        })
+      ).detail;
+      const source = uninitialized
+        ? {
+            ...changed(original, { generation: -1 }),
+            snapshot: null,
+            improvements: [],
+            history: [],
+          }
+        : original;
+      const saved = structuredClone(source);
+      await mountApp(source);
+      const posts = http.mutations.length;
+      const fork = screen.getByRole("button", { name: "Fork run" });
+      expect(fork).toBeEnabled();
+      fireEvent.click(fork);
+      const creator = screen.getByRole("dialog", { name: "Fork run" });
+      fireEvent.click(
+        within(creator).getByLabelText("Edit configuration JSON"),
+      );
+      const copied = JSON.parse(
+        (
+          within(creator).getByLabelText(
+            "Configuration JSON",
+          ) as HTMLTextAreaElement
+        ).value,
+      );
+      expect(copied).toEqual({
+        ...source.config,
+        name: `${source.config.name} (fork)`,
+      });
+      expect(copied.seedGenome).toEqual(source.config.seedGenome);
+      expect(copied.initialization).toBe("random");
+      expect(http.mutations).toHaveLength(posts);
+      fireEvent.click(
+        within(creator).getByLabelText("Close run configuration"),
+      );
+      expect(http.mutations).toHaveLength(posts);
+      fireEvent.click(fork);
+      field("Mutation probability", 0.2);
+      field("Incentive 2 weight", 5);
+      fireEvent.click(screen.getByRole("button", { name: "Create paused" }));
+      const request = http.pending("/api/runs", "POST");
+      const payload = JSON.parse(String(request.options.body));
+      expect(payload).toEqual({
+        config: {
+          ...copied,
+          mutationRate: 0.2,
+          incentives: [
+            copied.incentives[0],
+            { ...copied.incentives[1], weight: 5 },
+          ],
+        },
+        start: false,
+      });
+      expect(http.mutations.some((entry) => entry.path.endsWith("/fork"))).toBe(
+        false,
+      );
+      expect(source).toEqual(saved);
+      await http.reply(
+        "/api/runs",
+        {
+          ...source,
+          config: payload.config,
+          summary: { ...source.summary, id: "fork-created", generation: -1 },
+        },
+        "POST",
+        201,
+      );
+      expect(
+        screen.queryByRole("dialog", { name: "Fork run" }),
+      ).not.toBeInTheDocument();
+    },
+  );
   it("displays immutable configuration and seeds a variant from the champion even after random initialization", async () => {
     const source = (
       await researchFixture("random-source", 2, { initialization: "random" })
