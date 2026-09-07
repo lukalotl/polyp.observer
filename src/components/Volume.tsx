@@ -5,9 +5,13 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useId,
+  createRef,
 } from "react";
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, OrthographicCamera } from "@react-three/drei";
+import GalleryViewport, { GalleryClear } from "../rendering/GalleryViewport";
+import { galleryWindow } from "../research/gallery";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import TechnicalStage from "../rendering/TechnicalStage";
@@ -50,6 +54,16 @@ export interface VolumeProps {
   view?: VolumeView;
   /** Sampled array index, not the actual CA time in simulation.layerTimes. */
   onLayerSelect?: (layer: number) => void;
+  gallery?: {
+    items: {
+      id: string;
+      label: string;
+      simulation?: VolumeSimulation;
+      error?: string;
+    }[];
+    index: number;
+    onSelect: (index: number) => void;
+  };
 }
 
 function useReducedMotion() {
@@ -78,6 +92,9 @@ function CameraRig({
   fitMode,
   view,
   occupiedBounds,
+  interactive = true,
+  viewportSize,
+  domElement,
 }: {
   latticeSize: number;
   layers: number;
@@ -89,10 +106,15 @@ function CameraRig({
   fitMode: VolumeFitMode;
   view: VolumeView;
   occupiedBounds: VolumeBounds | null;
+  interactive?: boolean;
+  viewportSize?: { width: number; height: number };
+  domElement?: HTMLElement;
 }) {
   const controls = useRef<OrbitControlsImpl>(null);
-  const { camera, size, invalidate } = useThree();
+  const { camera, size: canvasSize, invalidate } = useThree();
+  const size = viewportSize ?? canvasSize;
   const previousFit = useRef<{
+    camera: THREE.Camera;
     zoom: number;
     resetKey: number;
     timeScale: number;
@@ -123,6 +145,7 @@ function CameraRig({
     const previous = previousFit.current;
     if (
       !previous ||
+      previous.camera !== camera ||
       previous.resetKey !== resetKey ||
       previous.fitMode !== fitMode ||
       previous.view !== view ||
@@ -144,6 +167,7 @@ function CameraRig({
       orbit.update();
     }
     previousFit.current = {
+      camera,
       zoom: fit.zoom,
       resetKey,
       timeScale,
@@ -181,6 +205,8 @@ function CameraRig({
   return (
     <OrbitControls
       ref={controls}
+      enabled={interactive}
+      domElement={domElement}
       makeDefault
       enablePan
       enableZoom
@@ -336,7 +362,16 @@ function Scene({
   fitMode = "world",
   view = "iso",
   onLayerSelect,
-}: VolumeProps) {
+  boxed = false,
+  interactive = true,
+  viewportSize,
+  domElement,
+}: VolumeProps & {
+  boxed?: boolean;
+  interactive?: boolean;
+  viewportSize?: { width: number; height: number };
+  domElement?: HTMLElement;
+}) {
   const { gl } = useThree();
   const dense = useMemo(
     () =>
@@ -385,14 +420,17 @@ function Scene({
         intensity={0.48}
         color="#8da5a1"
       />
-      <TechnicalStage
-        size={simulation.size}
-        timeLayout={layout.timeLayout}
-        annotations={annotations}
-        layerTimes={simulation.layerTimes}
-        occupiedBounds={fitMode === "specimen" ? layout.bounds : null}
-        specimen={fitMode === "specimen"}
-      />
+      {!boxed && (
+        <TechnicalStage
+          size={simulation.size}
+          timeLayout={layout.timeLayout}
+          annotations={annotations}
+          layerTimes={simulation.layerTimes}
+          occupiedBounds={fitMode === "specimen" ? layout.bounds : null}
+          specimen={fitMode === "specimen"}
+        />
+      )}
+      {boxed && <ContentBounds bounds={layout.bounds} size={simulation.size} />}
       {dense ? (
         <DenseVolume
           data={dense}
@@ -433,9 +471,42 @@ function Scene({
         fitMode={fitMode}
         view={view}
         occupiedBounds={layout.bounds}
+        interactive={interactive}
+        viewportSize={viewportSize}
+        domElement={domElement}
       />
     </>
   );
+}
+
+function ContentBounds({
+  bounds,
+  size,
+}: {
+  bounds: VolumeBounds | null;
+  size: number;
+}) {
+  const box = useMemo(() => {
+    const padding = Math.max(0.4, size * 0.018);
+    const box = bounds
+      ? new THREE.Box3(
+          new THREE.Vector3(...bounds.min),
+          new THREE.Vector3(...bounds.max),
+        ).expandByScalar(padding)
+      : new THREE.Box3(
+          new THREE.Vector3(-1, -1, -1),
+          new THREE.Vector3(1, 1, 1),
+        );
+    return new THREE.Box3Helper(box, new THREE.Color("#a596bf"));
+  }, [bounds, size]);
+  useEffect(
+    () => () => {
+      box.geometry.dispose();
+      (box.material as THREE.Material).dispose();
+    },
+    [box],
+  );
+  return <primitive object={box} />;
 }
 
 function RendererFallback({
@@ -489,44 +560,277 @@ export default function Volume(props: VolumeProps) {
   const reducedMotion = useReducedMotion();
   const [contextLost, setContextLost] = useState(false);
   const contextCleanup = useRef<(() => void) | null>(null);
+  const host = useRef<HTMLDivElement>(null!);
+  const track = useRef<HTMLDivElement>(null);
+  const invalidate = useRef<() => void>(() => {});
+  const [viewportSize, setViewportSize] = useState({ width: 1, height: 1 });
+  const id = useId();
+  const gallery = props.gallery;
+  const visibleIndices = gallery
+    ? galleryWindow(gallery.items.length, gallery.index)
+    : [];
+  const lastSelection = useRef<string>();
+  const pointerStart = useRef<[number, number]>([0, 0]);
+  const scrollTarget = useRef(0);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout>>();
+  const viewTracks = useRef(new Map<string, React.RefObject<HTMLDivElement>>());
+  function viewTrack(key: string) {
+    if (!viewTracks.current.has(key))
+      viewTracks.current.set(key, createRef<HTMLDivElement>());
+    return viewTracks.current.get(key)!;
+  }
+  useEffect(() => {
+    const ids = new Set(gallery?.items.map((item) => item.id));
+    for (const key of viewTracks.current.keys())
+      if (!ids.has(key)) viewTracks.current.delete(key);
+  }, [gallery?.items]);
+  useLayoutEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      setViewportSize({
+        width: element.clientWidth,
+        height: element.clientHeight,
+      });
+      invalidate.current();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    if (!gallery || !track.current) return;
+    const element = track.current.children[gallery.index] as
+      | HTMLElement
+      | undefined;
+    if (!element) return;
+    const identity = gallery.items[gallery.index]?.id;
+    scrollTarget.current = Math.max(
+      0,
+      Math.min(
+        track.current.scrollWidth - track.current.clientWidth,
+        element.offsetLeft +
+          element.offsetWidth / 2 -
+          track.current.clientWidth / 2,
+      ),
+    );
+    track.current.scrollTo({
+      left: scrollTarget.current,
+      behavior:
+        !reducedMotion &&
+        lastSelection.current &&
+        lastSelection.current !== identity
+          ? "smooth"
+          : "instant",
+    });
+    lastSelection.current = identity;
+    invalidate.current();
+  }, [
+    gallery?.index,
+    gallery?.items.length,
+    gallery?.items[gallery.index]?.id,
+    viewportSize.width,
+    reducedMotion,
+  ]);
   useEffect(() => {
     setContextLost(false);
   }, [props.resetKey]);
   useEffect(() => () => contextCleanup.current?.(), []);
+  useEffect(() => () => clearTimeout(scrollTimer.current), []);
   return (
     <RendererBoundary resetKey={props.resetKey}>
-      {contextLost ? (
-        <RendererFallback message="WebGL context lost. Reload to retry." />
-      ) : (
-        <Canvas
-          orthographic
-          camera={{ position: [60, 60, 75], zoom: 8, near: 0.1, far: 1000 }}
-          dpr={[1, 1.5]}
-          frameloop="demand"
-          gl={{
-            antialias: true,
-            alpha: false,
-            powerPreference: "high-performance",
-          }}
-          fallback={<RendererFallback />}
-          onCreated={({ gl, raycaster }) => {
-            gl.toneMapping = THREE.ACESFilmicToneMapping;
-            gl.toneMappingExposure = 0.98;
-            raycaster.params.Points = { threshold: 0.55 };
-            const canvas = gl.domElement;
-            const lost = (event: Event) => {
-              event.preventDefault();
-              setContextLost(true);
-            };
-            contextCleanup.current?.();
-            canvas.addEventListener("webglcontextlost", lost);
-            contextCleanup.current = () =>
-              canvas.removeEventListener("webglcontextlost", lost);
-          }}
-        >
-          <Scene {...props} autoRotate={props.autoRotate && !reducedMotion} />
-        </Canvas>
-      )}
+      <div
+        ref={host}
+        className="model-gallery"
+        role={gallery ? "listbox" : undefined}
+        aria-label={gallery ? "3D model gallery" : undefined}
+        aria-orientation={gallery ? "horizontal" : undefined}
+        aria-activedescendant={gallery ? `${id}-${gallery.index}` : undefined}
+        tabIndex={gallery ? 0 : undefined}
+      >
+        {gallery && (
+          <div
+            ref={track}
+            className="model-gallery-track"
+            style={
+              {
+                "--gallery-columns": Math.min(3, gallery.items.length),
+              } as React.CSSProperties
+            }
+            onScroll={() => {
+              invalidate.current();
+              clearTimeout(scrollTimer.current);
+              scrollTimer.current = setTimeout(() => {
+                const element = track.current;
+                if (
+                  !element ||
+                  Math.abs(element.scrollLeft - scrollTarget.current) < 2
+                )
+                  return;
+                const width =
+                  element.clientWidth / Math.min(3, gallery.items.length);
+                gallery.onSelect(
+                  Math.max(
+                    0,
+                    Math.min(
+                      gallery.items.length - 1,
+                      Math.round(
+                        (element.scrollLeft + element.clientWidth / 2) / width -
+                          0.5,
+                      ),
+                    ),
+                  ),
+                );
+              }, 160);
+            }}
+          >
+            {gallery.items.map((item, index) => {
+              const selected = gallery.index === index;
+              const visible = visibleIndices.includes(index);
+              return (
+                <div
+                  key={item.id}
+                  id={`${id}-${index}`}
+                  className={`model-gallery-item ${selected ? "selected" : ""}`}
+                  role="option"
+                  aria-selected={selected}
+                  aria-label={`Model ${index + 1}: ${item.id}, ${item.label}`}
+                  onPointerDown={(event) => {
+                    pointerStart.current = [event.clientX, event.clientY];
+                    host.current?.focus({ preventScroll: true });
+                  }}
+                  onClick={(event) => {
+                    if (
+                      Math.hypot(
+                        event.clientX - pointerStart.current[0],
+                        event.clientY - pointerStart.current[1],
+                      ) < 5 &&
+                      (!selected || item.error)
+                    )
+                      gallery.onSelect(index);
+                  }}
+                >
+                  <div className="model-view" ref={viewTrack(item.id)} />
+                  {(!visible || !item.simulation) && (
+                    <div className="model-placeholder">
+                      <span>
+                        {item.error
+                          ? "Preview unavailable · select to retry"
+                          : visible
+                            ? "Loading model…"
+                            : "Select to preview"}
+                      </span>
+                    </div>
+                  )}
+                  <div className="model-caption">
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <span title={item.id}>{item.id}</span>
+                    <span>{item.label}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {contextLost ? (
+          <RendererFallback message="WebGL context lost. Reload to retry." />
+        ) : (
+          <Canvas
+            style={
+              gallery
+                ? { position: "absolute", inset: 0, pointerEvents: "none" }
+                : undefined
+            }
+            eventSource={gallery ? host : undefined}
+            orthographic
+            camera={{ position: [60, 60, 75], zoom: 8, near: 0.1, far: 1000 }}
+            dpr={[1, 1.5]}
+            frameloop="demand"
+            gl={{
+              antialias: true,
+              alpha: false,
+              powerPreference: "high-performance",
+            }}
+            fallback={<RendererFallback />}
+            onCreated={({ gl, raycaster, invalidate: requestFrame }) => {
+              invalidate.current = requestFrame;
+              gl.toneMapping = THREE.ACESFilmicToneMapping;
+              gl.toneMappingExposure = 0.98;
+              raycaster.params.Points = { threshold: 0.55 };
+              const canvas = gl.domElement;
+              const lost = (event: Event) => {
+                event.preventDefault();
+                setContextLost(true);
+              };
+              contextCleanup.current?.();
+              canvas.addEventListener("webglcontextlost", lost);
+              contextCleanup.current = () =>
+                canvas.removeEventListener("webglcontextlost", lost);
+            }}
+          >
+            {gallery ? (
+              <>
+                <GalleryClear />
+                {gallery.items.map((item, index) => {
+                  if (!visibleIndices.includes(index) || !item.simulation)
+                    return null;
+                  const selected = gallery.index === index;
+                  const element = viewTrack(item.id);
+                  return (
+                    <GalleryViewport
+                      key={item.id}
+                      track={element}
+                      index={index}
+                    >
+                      <OrthographicCamera
+                        makeDefault
+                        position={[60, 60, 75]}
+                        zoom={8}
+                        near={0.1}
+                        far={1000}
+                      />
+                      <Scene
+                        {...props}
+                        simulation={item.simulation}
+                        visibleLayers={
+                          selected
+                            ? props.visibleLayers
+                            : item.simulation.layers.length
+                        }
+                        boxed={!selected}
+                        interactive={selected}
+                        annotations={selected && props.annotations}
+                        autoRotate={
+                          selected && props.autoRotate && !reducedMotion
+                        }
+                        domElement={element.current ?? undefined}
+                        viewportSize={{
+                          width:
+                            (viewportSize.width /
+                              Math.min(3, gallery.items.length)) *
+                            (selected ? 1 : 0.86),
+                          height:
+                            Math.max(1, viewportSize.height - 42) *
+                            (selected ? 1 : 0.86),
+                        }}
+                        onLayerSelect={
+                          selected
+                            ? props.onLayerSelect
+                            : () => gallery.onSelect(index)
+                        }
+                      />
+                    </GalleryViewport>
+                  );
+                })}
+              </>
+            ) : (
+              <Scene
+                {...props}
+                autoRotate={props.autoRotate && !reducedMotion}
+              />
+            )}
+          </Canvas>
+        )}
+      </div>
     </RendererBoundary>
   );
 }

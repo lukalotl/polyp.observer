@@ -536,6 +536,65 @@ describe("API-backed research workbench", () => {
     await finishPreviews();
     expect(genetics).toHaveTextContent(fixture.state.champion.id);
   });
+  it("browses a generation in order without changing its source, coordinates genetics, and rejects stale specimen frames", async () => {
+    await mountApp();
+    field("Inspected candidate", "generation");
+    await finishPreviews();
+    const gallery = volumeProps().gallery!;
+    expect(gallery.index).toBe(gallery.items.length - 1);
+    expect(gallery.items).toHaveLength(fixture.state.population.length);
+    expect(screen.getByLabelText("Gallery position")).toHaveTextContent(
+      "8 / 8",
+    );
+    const target = gallery.items.findIndex((item) => {
+      const individual = fixture.state.population.find(
+        (value) => value.id === item.id,
+      )!;
+      return (
+        individual.genome.join(",") !== fixture.state.champion.genome.join(",")
+      );
+    });
+    act(() => gallery.onSelect(target));
+    expect(screen.getByLabelText("Inspected candidate")).toHaveValue(
+      "generation",
+    );
+    expect(volumeProps().gallery!.items[target].simulation).toBeUndefined();
+    await finishPreviews();
+    fireEvent.click(screen.getByRole("tab", { name: "Genetics" }));
+    expect(
+      screen.getByRole("region", { name: "Genetics and immediate ancestry" }),
+    ).toHaveTextContent(gallery.items[target].id);
+    expect(volumeProps().gallery!.items[target].simulation).toBeDefined();
+    const inspector = screen.getByRole("region", {
+      name: "Champion inspector",
+    });
+    fireEvent.keyDown(inspector, { key: "End" });
+    expect(screen.getByLabelText("Gallery position")).toHaveTextContent(
+      "8 / 8",
+    );
+    fireEvent.keyDown(inspector, { key: "ArrowLeft" });
+    expect(screen.getByLabelText("Gallery position")).toHaveTextContent(
+      "7 / 8",
+    );
+    fireEvent.keyDown(screen.getByRole("slider", { name: "CA timestep" }), {
+      key: "Home",
+    });
+    expect(screen.getByLabelText("Gallery position")).toHaveTextContent(
+      "7 / 8",
+    );
+    expect(
+      http.mutations.filter((entry) => entry.path.endsWith("/actions")),
+    ).toHaveLength(0);
+    field("Inspected candidate", "best");
+    await finishPreviews();
+    expect(volumeProps().gallery!.items.at(-1)!.id).toBe(
+      fixture.state.champion.id,
+    );
+    expect(volumeProps().gallery!.index).toBe(
+      volumeProps().gallery!.items.length - 1,
+    );
+  });
+
   it("loads retained populations separately from live generation metrics and returns to latest", async () => {
     await mountApp();
     fireEvent.click(screen.getByRole("tab", { name: "History" }));

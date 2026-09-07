@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Download,
@@ -32,6 +33,12 @@ import { useResearch } from "./useResearch";
 import { DEFAULT_RUN_CONFIG } from "./research/config";
 import { download, request } from "./research/api";
 import { decodePreview } from "./research/preview";
+import {
+  galleryCandidates,
+  galleryIndex,
+  galleryNeighbors,
+} from "./research/gallery";
+import { useNeighborPreviews } from "./research/useNeighborPreviews";
 import { duration, fitnessNumber, number, time } from "./research/format";
 import { parseExperiment } from "./experiment";
 import type {
@@ -76,8 +83,11 @@ export default function App() {
   const [source, setSource] = useState<"best" | "generation" | "selected">(
     "best",
   );
-  const [frame, setFrame] = useState<PreviewFrame | null>(null);
+  const [galleryCursor, setGalleryCursor] = useState<string | null>(null);
+  const [frameContext, setFrameContext] = useState("");
+  const [storedFrame, setFrame] = useState<PreviewFrame | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const [previewError, setPreviewError] = useState("");
   const [previewRange, setPreviewRange] = useState<PreviewRange | undefined>();
   const [rangeStart, setRangeStart] = useState("0");
@@ -108,25 +118,39 @@ export default function App() {
       !detail || focus ? "hidden" : showAnalysis ? "expanded" : "collapsed",
   });
   const workingSnapshot = historical ?? detail?.snapshot ?? null;
-  const generationBest = useMemo(
-    () =>
-      workingSnapshot?.population.reduce<Individual | null>(
-        (best, individual) =>
-          !best || individual.fitness > best.fitness ? individual : best,
-        null,
-      ) ?? null,
-    [workingSnapshot],
+  const candidates = useMemo(
+    () => galleryCandidates(detail, workingSnapshot, source, selected),
+    [detail, workingSnapshot, source, selected],
   );
-  const individual =
-    source === "selected"
-      ? (selected?.individual ?? null)
-      : source === "generation"
-        ? generationBest
-        : (detail?.snapshot?.champion ?? null);
+  const candidateIndex = galleryIndex(candidates, galleryCursor);
+  const individual = candidates[candidateIndex]?.individual ?? null;
   const genome = individual?.genome ?? detail?.config.seedGenome ?? null;
-  const genomeKey = genome?.join("") ?? "";
+  const genomeKey = genome?.join(",") ?? "";
   const previewSeed = fixtureSeed ?? detail?.config.trainingSeeds[0] ?? 1729;
+  const previewContext = JSON.stringify([
+    lab.selectedId,
+    previewSeed,
+    previewRange,
+    detail?.config.size,
+    detail?.config.steps,
+  ]);
+  const currentFrameContext = `${previewContext}:${genomeKey}`;
+  const frame = frameContext === currentFrameContext ? storedFrame : null;
   const decoded = useMemo(() => (frame ? decodePreview(frame) : null), [frame]);
+  const neighborPreview = useNeighborPreviews({
+    context: previewContext,
+    runId: lab.selectedId ?? undefined,
+    genomes: galleryNeighbors(candidates.length, candidateIndex).map(
+      (index) => candidates[index].individual.genome,
+    ),
+    seed: previewSeed,
+    range: previewRange,
+    ready: Boolean(frame) && !previewBusy && lab.connection !== "reconnecting",
+  });
+  const emptySimulation = useMemo(
+    () => ({ size: detail?.config.size ?? 1, layers: [] }),
+    [detail?.config.size],
+  );
   const layer = Math.max(
     0,
     Math.min((decoded?.layers.length ?? 1) - 1, visibleLayers - 1),
@@ -164,6 +188,7 @@ export default function App() {
     setRequestedGeneration(null);
     setSelected(null);
     setSource("best");
+    setGalleryCursor(null);
     setFixtureSeed(null);
     setFrame(null);
     setPreviewError("");
@@ -199,6 +224,7 @@ export default function App() {
         if (controller.signal.aborted) return;
         decodePreview(value);
         setFrame(value);
+        setFrameContext(currentFrameContext);
         setVisibleLayers(value.layerTimes.length);
         setResetKey((key) => key + 1);
       })
@@ -224,6 +250,7 @@ export default function App() {
     previewRange,
     detail?.config.size,
     detail?.config.steps,
+    previewAttempt,
   ]);
 
   useEffect(() => {
@@ -242,6 +269,7 @@ export default function App() {
         if (!controller.signal.aborted) {
           setHistorical(value);
           setSource("generation");
+          setGalleryCursor(null);
           setSelected(null);
         }
       })
@@ -304,6 +332,17 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [run, lab, isActive]);
 
+  function selectGalleryIndex(index: number) {
+    const candidate = candidates[index];
+    if (!candidate) return;
+    if (index === candidateIndex && previewError)
+      setPreviewAttempt((value) => value + 1);
+    setGalleryCursor(
+      index === candidates.length - 1 ? null : candidate.individual.id,
+    );
+    setPlaying(false);
+  }
+
   function openNew(base?: RunConfig, title = "New run") {
     const config = structuredClone(base ?? DEFAULT_RUN_CONFIG);
     if (!base)
@@ -337,6 +376,7 @@ export default function App() {
       generation: workingSnapshot?.generation ?? value.birthGeneration,
     });
     setSource("selected");
+    setGalleryCursor(null);
     setPlaying(false);
   }
   function doAction(
@@ -709,6 +749,32 @@ export default function App() {
               <section
                 className="champion-pane"
                 aria-label="Champion inspector"
+                onKeyDown={(event) => {
+                  if (
+                    event.defaultPrevented ||
+                    event.altKey ||
+                    event.ctrlKey ||
+                    event.metaKey ||
+                    (event.target as HTMLElement).closest(
+                      "input, select, textarea, [contenteditable=true]",
+                    )
+                  )
+                    return;
+                  const index =
+                    event.key === "ArrowLeft"
+                      ? candidateIndex - 1
+                      : event.key === "ArrowRight"
+                        ? candidateIndex + 1
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? candidates.length - 1
+                            : null;
+                  if (index === null) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  selectGalleryIndex(index);
+                }}
               >
                 <div className="inspector-toolbar">
                   <select
@@ -716,6 +782,7 @@ export default function App() {
                     value={source}
                     onChange={(event) => {
                       setSource(event.target.value as typeof source);
+                      setGalleryCursor(null);
                       setPlaying(false);
                     }}
                   >
@@ -763,9 +830,58 @@ export default function App() {
                   </button>
                 </div>
                 <div className="champion-canvas">
-                  {renderSimulation && (
+                  {genome && (
                     <Volume
-                      simulation={renderSimulation}
+                      simulation={renderSimulation ?? emptySimulation}
+                      gallery={
+                        candidates.length
+                          ? {
+                              index: candidateIndex,
+                              onSelect: selectGalleryIndex,
+                              items: candidates.map((candidate, index) => {
+                                const neighbor = neighborPreview(
+                                  candidate.individual.genome,
+                                );
+                                const simulation =
+                                  index === candidateIndex
+                                    ? (renderSimulation ?? undefined)
+                                    : neighbor?.simulation;
+                                return {
+                                  id: candidate.individual.id,
+                                  label: `g ${candidate.generation} · ${fitnessNumber(candidate.individual.fitness)}`,
+                                  simulation:
+                                    index === candidateIndex ||
+                                    displayMode === "volume" ||
+                                    !simulation
+                                      ? simulation
+                                      : {
+                                          size: simulation.size,
+                                          layers: [
+                                            simulation.layers[
+                                              Math.min(
+                                                layer,
+                                                simulation.layers.length - 1,
+                                              )
+                                            ],
+                                          ],
+                                          layerTimes: [
+                                            simulation.layerTimes![
+                                              Math.min(
+                                                layer,
+                                                simulation.layers.length - 1,
+                                              )
+                                            ],
+                                          ],
+                                        },
+                                  error:
+                                    index === candidateIndex
+                                      ? previewError
+                                      : neighbor?.error,
+                                };
+                              }),
+                            }
+                          : undefined
+                      }
                       visibleLayers={
                         displayMode === "slice" ? 1 : visibleLayers
                       }
@@ -786,7 +902,7 @@ export default function App() {
                       }}
                     />
                   )}
-                  {(!frame || previewBusy) && (
+                  {(!frame || previewBusy) && candidates.length === 0 && (
                     <div
                       className={`preview-loading ${frame ? "subtle" : ""}`}
                       role="status"
@@ -987,6 +1103,42 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                {candidates.length > 0 && (
+                  <nav
+                    className="gallery-navigation"
+                    aria-label="Model gallery navigation"
+                  >
+                    <span className="gallery-order">
+                      {source === "best"
+                        ? "Record holders · oldest → newest"
+                        : source === "generation"
+                          ? `Generation ${workingSnapshot?.generation} · fitness →`
+                          : "Selected individual"}
+                    </span>
+                    <span className="gallery-key-hint">← → browse</span>
+                    <button
+                      aria-label="Previous model"
+                      disabled={candidateIndex <= 0}
+                      onClick={() => selectGalleryIndex(candidateIndex - 1)}
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <span
+                      className="gallery-position"
+                      role="status"
+                      aria-label="Gallery position"
+                    >
+                      {candidateIndex + 1} / {candidates.length}
+                    </span>
+                    <button
+                      aria-label="Next model"
+                      disabled={candidateIndex >= candidates.length - 1}
+                      onClick={() => selectGalleryIndex(candidateIndex + 1)}
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </nav>
+                )}
                 {frame?.boundaryContacts && (
                   <div
                     className="fixture-boundaries"
@@ -1104,9 +1256,11 @@ export default function App() {
                             setRequestedGeneration(null);
                             setHistorical(null);
                             setSource("best");
+                            setGalleryCursor(null);
                           } else if (detail.snapshot) {
                             setHistorical(detail.snapshot);
                             setSource("generation");
+                            setGalleryCursor(null);
                             setSelected(null);
                           }
                         }}
@@ -1172,6 +1326,7 @@ export default function App() {
                             if (generation === null) {
                               setHistorical(null);
                               setSource("best");
+                              setGalleryCursor(null);
                             }
                           }}
                         />

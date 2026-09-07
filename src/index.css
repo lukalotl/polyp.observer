@@ -1652,3 +1652,137 @@ input[type="range"]:disabled {
   max-height: calc(100% - 14px);
   overflow-y: auto;
 }
+
+/* One shared WebGL canvas follows the horizontal specimen track. */
+.model-gallery {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #090f16;
+  outline: none;
+}
+.model-gallery:focus-visible {
+  box-shadow: inset 0 0 0 1px #a596bf;
+}
+.model-gallery-track {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.model-gallery-track::-webkit-scrollbar {
+  display: none;
+}
+.model-gallery-item {
+  position: relative;
+  flex: 0 0 calc(100% / var(--gallery-columns, 1));
+  min-width: 0;
+  cursor: pointer;
+}
+.model-gallery-item.selected {
+  cursor: grab;
+}
+.model-gallery-item.selected:active {
+  cursor: grabbing;
+}
+.model-view,
+.model-placeholder {
+  position: absolute;
+  inset: 0 0 42px;
+}
+.model-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  font: 9px var(--mono);
+  color: #8da5a1;
+  text-align: center;
+  z-index: 1;
+  pointer-events: none;
+}
+.model-gallery-item:not(.selected) .model-placeholder::before {
+  content: "";
+  position: absolute;
+  inset: 16% 14%;
+  border: 1px dashed #a596bf66;
+}
+.model-caption {
+  position: absolute;
+  bottom: 14px;
+  left: 10%;
+  right: 10%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8da5a1;
+  font: 9px var(--mono);
+  pointer-events: none;
+  z-index: 1;
+}
+.model-caption span:nth-child(2) {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-caption span:last-child {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.model-caption span:first-child {
+  color: #a596bf;
+}
+.selected .model-caption {
+  color: #e5c995;
+}
+.selected .model-caption span:first-child {
+  color: #e99583;
+}
+.gallery-navigation {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 2px 10px;
+  background: #090f16;
+  font: 9px var(--mono);
+  color: #8da5a1;
+}
+.gallery-order {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: auto;
+}
+.gallery-key-hint {
+  color: #757f83;
+  margin-right: 8px;
+}
+.gallery-navigation button {
+  min-height: 23px;
+  padding: 2px 4px;
+}
+.gallery-position {
+  min-width: 48px;
+  text-align: center;
+  color: #e5c995;
+}
+.champion-canvas:has(.model-gallery-track) .time-scale-indicator {
+  top: 8px;
+  bottom: auto;
+}
+@media (max-width: 600px) {
+  .gallery-key-hint {
+    display: none;
+  }
+  .model-caption {
+    gap: 4px;
+    left: 5%;
+    right: 5%;
+    font-size: 8px;
+  }
+}

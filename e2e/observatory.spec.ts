@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { PRESETS } from "../src/simulation";
 import {
   expect,
   test,
@@ -916,3 +917,124 @@ for (const stateCount of [2, 16]) {
     );
   });
 }
+
+test("carousel centers three specimens, coordinates sources, and supports click and arrow navigation", async ({
+  page,
+  request,
+}, testInfo) => {
+  const preset = PRESETS.find((value) => value.id === "dendrite")!;
+  const run = await createRun(page, testInfo, false, {
+    stateCount: 5,
+    seed: preset.seed,
+    seedGenome: preset.genome,
+    initialization: "mutants",
+    mutationRate: 0.01,
+    objective: "complexity",
+    boundaryPolicy: { spatial: false, horizon: false },
+  });
+  const initialized = await step(page, request, run.summary.id);
+  const mutations = observations.get(page)!.mutations.length;
+  await page.getByLabel("Inspected candidate").selectOption("generation");
+  await page.getByRole("button", { name: "Freeze population view" }).click();
+  const gallery = page.getByRole("listbox", { name: "3D model gallery" });
+  const options = gallery.getByRole("option");
+  await expect(options).toHaveCount(initialized.snapshot!.population.length);
+  await expect(options.last()).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Gallery position")).toHaveText("8 / 8");
+  await expect(page.locator("canvas")).toHaveCount(1);
+  await expect(gallery.locator(".model-placeholder:visible")).toHaveCount(5);
+
+  // Inspect actual rendered pixels, not just correctly placed DOM boxes. This
+  // catches a fresh camera looking at y=0 and cropping a specimen at its base.
+  async function expectCentered(index: number) {
+    const viewport = options.nth(index).locator(".model-view");
+    const bounds = (await viewport.boundingBox())!;
+    const host = (await gallery.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(host.x - 1);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(
+      host.x + host.width + 1,
+    );
+    const screenshot = await viewport.screenshot();
+    const pixels = await page.evaluate(async (encoded) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${encoded}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(0, 0, image.width, image.height).data;
+      let left = image.width,
+        right = 0,
+        top = image.height,
+        bottom = 0,
+        count = 0;
+      for (let y = 0; y < image.height; y++)
+        for (let x = 0; x < image.width; x++) {
+          const i = (y * image.width + x) * 4;
+          if (
+            data[i] > 45 &&
+            data[i] > data[i + 1] * 1.15 &&
+            data[i] > data[i + 2] * 1.1
+          ) {
+            count++;
+            left = Math.min(left, x);
+            right = Math.max(right, x);
+            top = Math.min(top, y);
+            bottom = Math.max(bottom, y);
+          }
+        }
+      return {
+        count,
+        x: (left + right) / (2 * image.width),
+        y: (top + bottom) / (2 * image.height),
+        top: top / image.height,
+        bottom: bottom / image.height,
+      };
+    }, screenshot.toString("base64"));
+    expect(pixels.count).toBeGreaterThan(20);
+    expect(pixels.x).toBeGreaterThan(0.35);
+    expect(pixels.x).toBeLessThan(0.65);
+    expect(pixels.y).toBeGreaterThan(0.35);
+    expect(pixels.y).toBeLessThan(0.65);
+    expect(pixels.top).toBeGreaterThan(0.015);
+    expect(pixels.bottom).toBeLessThan(0.985);
+  }
+  for (const index of [5, 6, 7]) await expectCentered(index);
+  await options.nth(6).click();
+  await expect(options.nth(6)).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Inspected candidate")).toHaveValue(
+    "generation",
+  );
+  await gallery.press("ArrowLeft");
+  await expect(page.getByLabel("Gallery position")).toHaveText("6 / 8");
+  const identity = await options.nth(5).getAttribute("aria-label");
+  await page.getByRole("tab", { name: "Genetics", exact: true }).click();
+  const candidateId = identity!.split(": ")[1].split(",")[0];
+  await expect(
+    page.getByRole("region", { name: "Genetics and immediate ancestry" }),
+  ).toContainText(candidateId);
+  await gallery.press("End");
+  await expect(page.getByLabel("Gallery position")).toHaveText("8 / 8");
+  // A wide registry + short inspector used to cull the rightmost view using
+  // page coordinates as if the canvas began at the viewport's top-left.
+  const registry = page.getByRole("separator", {
+    name: "Resize run registry",
+    exact: true,
+  });
+  await registry.focus();
+  for (let i = 0; i < 10; i++) await registry.press("ArrowRight");
+  const divider = page.getByRole("separator", {
+    name: "Resize analysis and inspector",
+    exact: true,
+  });
+  await divider.focus();
+  for (let i = 0; i < 5; i++) await divider.press("ArrowUp");
+  await expectCentered(7);
+  await page.getByLabel("Inspected candidate").selectOption("best");
+  await expect(options).toHaveCount(initialized.improvements.length);
+  await expect(options.last()).toHaveAttribute("aria-selected", "true");
+  expect(observations.get(page)!.mutations).toHaveLength(mutations);
+  await screenArtifact(page, testInfo, "centered-model-carousel");
+});
