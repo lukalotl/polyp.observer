@@ -485,6 +485,7 @@ export default function App() {
             name: founder.name || "Imported founder",
             stateCount: 5,
             seedGenome: founder.genome,
+            initialization: "mutants",
             size: founder.config.size,
             steps: founder.config.steps,
             seed: founder.config.seed,
@@ -907,7 +908,9 @@ export default function App() {
                   <span className="candidate-identity" title={individual?.id}>
                     {individual
                       ? `${individual.id} · ${fitnessNumber(individual.fitness)}${individual.fixturePasses ? ` · ${individual.fixturePasses.training.filter(Boolean).length}/${individual.fixturePasses.training.length} passed` : individual.disqualified ? " · Fixture failure" : ""}`
-                      : "Founder · not evaluated"}
+                      : detail.config.initialization === "random"
+                        ? "Example rule · population not initialized"
+                        : "Founder · not evaluated"}
                   </span>
                   <span className="toolbar-space" />
                   {frame && frame.stride > 1 && (

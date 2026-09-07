@@ -184,6 +184,7 @@ describe("boundary qualification of complete trajectories", () => {
   });
   it("round-trips disqualification through populations and cached evaluation without accepting contradictory flags", async () => {
     const cfg = config({
+      initialization: "mutants",
       seed: "islands",
       seedGenome: split,
       trainingSeeds: [1, 2],

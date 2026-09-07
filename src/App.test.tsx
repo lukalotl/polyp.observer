@@ -16,6 +16,7 @@ import {
   vi,
 } from "vitest";
 import App from "./App";
+import { DEFAULT_RUN_CONFIG } from "./research/config";
 import { incentivesForConfig, presetIncentive } from "./research/incentives";
 import RunDialog from "./components/research/RunDialog";
 import type { VolumeProps } from "./components/Volume";
@@ -90,6 +91,36 @@ async function submit(name = "Create paused") {
 }
 
 describe("complete, immutable run configuration", () => {
+  it("defaults new drafts to random rules and enables the preserved founder only on request", async () => {
+    const initial = structuredClone(DEFAULT_RUN_CONFIG);
+    const { onCreate } = dialog(initial);
+    expect(
+      screen.getByLabelText("Initialization", { exact: true }),
+    ).toHaveValue("random");
+    const preset = screen.getByLabelText("Founder preset", { exact: true });
+    const genome = screen.getByRole("button", { name: "Edit founder genome" });
+    const outputs = screen.getByRole("button", { name: "Edit 45 outputs" });
+    for (const control of [preset, genome, outputs])
+      expect(control).toBeDisabled();
+    expect(
+      screen.getByText(
+        /Every contender starts with an independently randomized rule/,
+      ),
+    ).toBeVisible();
+    field("Initialization", "mutants");
+    for (const control of [preset, genome, outputs])
+      expect(control).toBeEnabled();
+    field("Founder preset", PRESETS[2].id);
+    field("Initialization", "random");
+    field("Initialization", "mutants");
+    expect(preset).toHaveValue(PRESETS[2].id);
+    await submit();
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      initialization: "mutants",
+      seedGenome: PRESETS[2].genome,
+    });
+    expect(initial).toEqual(DEFAULT_RUN_CONFIG);
+  });
   it("creates, edits, weights, removes and round-trips safe custom incentives", async () => {
     const initial = smallConfig();
     const { onCreate } = dialog(initial);
@@ -1374,6 +1405,47 @@ describe("API-backed research workbench", () => {
       screen.getByRole("button", { name: "Select run Imported checkpoint" }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Start run" })).toBeEnabled();
+  });
+  it("imports a legacy founder into editable founder mode rather than ignoring its rule", async () => {
+    await mountApp();
+    const mutations = http.mutations.length;
+    const genome = [...PRESETS[2].genome];
+    await uploadCheckpoint(
+      uploadFile(
+        JSON.stringify({
+          version: 1,
+          name: "Imported specimen",
+          genome,
+          config: { size: 25, steps: 32, seed: "cross", randomSeed: 42 },
+        }),
+      ),
+    );
+    const imported = screen.getByRole("dialog", {
+      name: "New run from imported founder",
+    });
+    expect(
+      within(imported).getByLabelText("Initialization", { exact: true }),
+    ).toHaveValue("mutants");
+    expect(
+      within(imported).getByRole("button", { name: "Edit founder genome" }),
+    ).toBeEnabled();
+    fireEvent.click(
+      within(imported).getByRole("button", { name: "Edit configuration JSON" }),
+    );
+    expect(
+      JSON.parse(
+        (
+          within(imported).getByLabelText(
+            "Configuration JSON",
+          ) as HTMLTextAreaElement
+        ).value,
+      ),
+    ).toMatchObject({
+      initialization: "mutants",
+      seedGenome: genome,
+      trainingSeeds: [42],
+    });
+    expect(http.mutations).toHaveLength(mutations);
   });
   it.each(["not json", JSON.stringify({ invalid: true })])(
     "reports invalid imported data without replacing current research: %s",

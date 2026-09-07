@@ -18,6 +18,7 @@ import type {
 type Server = Awaited<ReturnType<typeof startResearchServer>>;
 const config = (patch: Partial<RunConfig> = {}): RunConfig => ({
   ...DEFAULT_RUN_CONFIG,
+  initialization: "mutants",
   name: "Native lifecycle",
   size: 9,
   steps: 8,

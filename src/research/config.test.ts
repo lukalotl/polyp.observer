@@ -31,7 +31,7 @@ describe("pinned, bounded research configuration", () => {
         variation: 0.12,
       },
       seedGenome: PRESETS[0].genome,
-      initialization: "mutants",
+      initialization: "random",
       populationSize: 64,
       eliteCount: 4,
       selection: "tournament",

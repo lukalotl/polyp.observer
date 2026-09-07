@@ -142,6 +142,7 @@ async function createRun(
   const initial = JSON.parse(await editor.inputValue()) as RunConfig;
   const config: RunConfig = {
     ...initial,
+    initialization: "mutants",
     name: `e2e-${Date.now()}-${testInfo.workerIndex}`,
     size: 25,
     steps: 32,
@@ -246,6 +247,65 @@ async function screenArtifact(page: Page, testInfo: TestInfo, name: string) {
   await page.screenshot({ path });
   await testInfo.attach(name, { path, contentType: "image/png" });
 }
+
+test("new runs default to random contenders while founder mode stays opt-in", async ({
+  page,
+  request,
+}, testInfo) => {
+  await page
+    .getByRole("button", { name: "New run", exact: true })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog", { name: "New run", exact: true });
+  await expect(
+    dialog.getByLabel("Initialization", { exact: true }),
+  ).toHaveValue("random");
+  await expect(
+    dialog.getByLabel("Founder preset", { exact: true }),
+  ).toBeDisabled();
+  await expect(
+    dialog.getByRole("button", { name: "Edit founder genome" }),
+  ).toBeDisabled();
+  await expect(
+    dialog.getByText(
+      /Every contender starts with an independently randomized rule/,
+    ),
+  ).toBeVisible();
+  // Keep initialization untouched; reduce only the workload for this disposable run.
+  await dialog
+    .getByLabel("Run name", { exact: true })
+    .fill(`e2e-random-default-${Date.now()}`);
+  await dialog.getByLabel("Grid size", { exact: true }).fill("9");
+  await dialog.getByLabel("CA horizon", { exact: true }).fill("8");
+  await dialog.getByLabel("Population", { exact: true }).fill("8");
+  await screenArtifact(page, testInfo, "random-default-dialog");
+  const creating = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/runs") &&
+      response.request().method() === "POST",
+  );
+  await dialog
+    .getByRole("button", { name: "Create paused", exact: true })
+    .click();
+  const response = await creating;
+  expect(response.status()).toBe(201);
+  const run = (await response.json()) as RunDetail;
+  createdIds.add(run.summary.id);
+  expect(run.config.initialization).toBe("random");
+  await expect(
+    page.getByText("Example rule · population not initialized", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await step(page, request, run.summary.id);
+  const saved = await checkpoint(request, run.summary.id);
+  expect(saved.state!.population).toHaveLength(8);
+  for (const contender of saved.state!.population) {
+    expect(contender.origin).toBe("random");
+    expect(contender.parents).toEqual([]);
+    expect(contender.genome).not.toEqual(run.config.seedGenome);
+  }
+});
 
 test("shared pane edges resize the original layout without changing research", async ({
   page,
@@ -440,6 +500,12 @@ test("the default finite-longevity run uses deep scale and previews its full 2,0
     .first()
     .click();
   const dialog = page.getByRole("dialog", { name: "New run", exact: true });
+  await expect(
+    dialog.getByLabel("Initialization", { exact: true }),
+  ).toHaveValue("random");
+  await dialog
+    .getByLabel("Initialization", { exact: true })
+    .selectOption("mutants");
   await expect(
     dialog.getByRole("spinbutton", { name: "Grid size", exact: true }),
   ).toHaveValue("129");
@@ -919,6 +985,9 @@ for (const stateCount of [2, 16]) {
       .click();
     const dialog = page.getByRole("dialog", { name: "New run", exact: true });
     await dialog
+      .getByLabel("Initialization", { exact: true })
+      .selectOption("mutants");
+    await dialog
       .getByRole("combobox", { name: "State count", exact: true })
       .selectOption(String(stateCount));
     await dialog
@@ -1303,6 +1372,7 @@ test("weighted custom incentives are edited safely and scored by the VM", async 
   const json = dialog.getByLabel("Configuration JSON");
   const config = {
     ...JSON.parse(await json.inputValue()),
+    initialization: "mutants",
     name: `e2e-incentives-${Date.now()}`,
     size: 9,
     steps: 8,

@@ -30,6 +30,7 @@ import type {
 } from "../src/research/types";
 const base = (patch: Partial<RunConfig> = {}): RunConfig => ({
   ...DEFAULT_RUN_CONFIG,
+  initialization: "mutants",
   name: "Scientific fixture",
   size: 9,
   steps: 8,

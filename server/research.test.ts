@@ -46,6 +46,7 @@ const DEADLINE = 15_000;
 const limits = { maxEvaluationWorkers: 2, maxRuns: 2, cpuBudget: 3 };
 const tiny = (patch: Partial<RunConfig> = {}): RunConfig => ({
   ...structuredClone(DEFAULT_RUN_CONFIG),
+  initialization: "mutants",
   name: "Fixture native research",
   size: 9,
   steps: 8,
@@ -218,6 +219,41 @@ async function socket(
     },
   };
 }
+
+test("the new-run default initializes random rules in native workers and survives checkpoint recovery", async (t) => {
+  const f = await fixture(t);
+  const config: RunConfig = {
+    ...structuredClone(DEFAULT_RUN_CONFIG),
+    size: 9,
+    steps: 8,
+    populationSize: 8,
+    evaluationWorkers: 1,
+  };
+  const created = await create(f.server, config);
+  assert.equal(created.config.initialization, "random");
+  await step(f.server, created.summary.id);
+  const saved = await checkpoint(f.server, created.summary.id);
+  assert.equal(saved.state!.population.length, config.populationSize);
+  for (const contender of saved.state!.population) {
+    assert.equal(contender.origin, "random");
+    assert.deepEqual(contender.parents, []);
+    assert.notDeepEqual(contender.genome, config.seedGenome);
+    assert.deepEqual(evaluateGenome(contender.genome, config), {
+      fitness: contender.fitness,
+      validationFitness: contender.validationFitness,
+      disqualified: contender.disqualified,
+      validationDisqualified: contender.validationDisqualified,
+      trainingScores: contender.trainingScores,
+      validationScores: contender.validationScores,
+      fixturePasses: contender.fixturePasses,
+      metrics: contender.metrics,
+    });
+  }
+  await f.restart();
+  const restored = await checkpoint(f.server, created.summary.id);
+  assert.deepEqual(restored.state, saved.state);
+  assert.deepEqual(restored.config, config);
+});
 
 test("production and preview frontend origins can control and observe the VM without allowing lookalike sites", async (t) => {
   const origins = [

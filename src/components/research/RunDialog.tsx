@@ -505,10 +505,15 @@ export default function RunDialog({
                       )
                     }
                   >
-                    <option value="mutants">Founder + mutations</option>
                     <option value="random">Random rules</option>
+                    <option value="mutants">Founder + mutations</option>
                   </select>
                 </label>
+                <p className="config-note">
+                  {draft.initialization === "random"
+                    ? "Every contender starts with an independently randomized rule. The founder rule is not used for initialization."
+                    : "One contender keeps the founder rule; the others start as mutations of it. Mutation probability controls their initial variation."}
+                </p>
               </fieldset>
               <fieldset>
                 <legend>Execution & retention</legend>
@@ -553,10 +558,17 @@ export default function RunDialog({
               </fieldset>
               <fieldset>
                 <legend>Founder rule</legend>
+                {draft.initialization === "random" && (
+                  <p className="config-note">
+                    Inactive for Random rules. This rule is only an example
+                    preview until the population is initialized.
+                  </p>
+                )}
                 <label className="config-field">
                   <span>Preset</span>
                   <select
                     aria-label="Founder preset"
+                    disabled={draft.initialization === "random"}
                     value={preset}
                     onChange={(event) => {
                       const value = presets.find(
@@ -583,6 +595,7 @@ export default function RunDialog({
                 <button
                   className="founder-genome"
                   aria-label="Edit founder genome"
+                  disabled={draft.initialization === "random"}
                   onClick={() => setEditGenome(true)}
                 >
                   {draft.seedGenome.map((state, index) => (
@@ -591,7 +604,10 @@ export default function RunDialog({
                 </button>
                 <div className="founder-caption">
                   <code>{genomeId(draft.seedGenome)}</code>
-                  <button onClick={() => setEditGenome(true)}>
+                  <button
+                    disabled={draft.initialization === "random"}
+                    onClick={() => setEditGenome(true)}
+                  >
                     Edit {draft.seedGenome.length} outputs
                   </button>
                 </div>

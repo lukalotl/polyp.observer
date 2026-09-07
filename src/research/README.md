@@ -202,8 +202,9 @@ the horizon. All but lifetime lie in [0,1].
 
 ## Population, operators, lineage and replay
 
-Generation 0 initializes a real population. `mutants` inserts the supplied genome
-as founder `i1`, then per-locus mutants (or honest clones at zero mutations) of
+Generation 0 initializes a real population. New runs default to `random`;
+existing configs retain their explicit initialization mode. `mutants` inserts
+the supplied genome as founder `i1`, then per-locus mutants (or honest clones at zero mutations) of
 that founder. Initialization mode `random` fills **all** slots with independent
 uniform random genomes, ignoring the seed genome as a founder.
 

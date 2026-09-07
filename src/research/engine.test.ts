@@ -17,6 +17,7 @@ import type {
 
 const config = (updates: Partial<RunConfig> = {}): RunConfig => ({
   ...structuredClone(DEFAULT_RUN_CONFIG),
+  initialization: "mutants",
   size: 9,
   steps: 8,
   populationSize: 16,
@@ -82,6 +83,28 @@ function trace(state: EngineState): void {
 }
 
 describe("retained generational population and honest provenance", () => {
+  it("defaults to independent random contenders, reproducible and unaffected by the founder", async () => {
+    const cfg = structuredClone(DEFAULT_RUN_CONFIG);
+    const first = await initializePopulation(cfg, cheap);
+    expect(first.config.initialization).toBe("random");
+    expect(first.population).toHaveLength(cfg.populationSize);
+    for (const contender of first.population) {
+      expect(contender.origin).toBe("random");
+      expect(contender.parents).toEqual([]);
+      expect(contender.genome[0]).toBe(0);
+      expect(contender.genome).not.toEqual(cfg.seedGenome);
+    }
+    const alternate = { ...cfg, seedGenome: Array(45).fill(0) };
+    const repeated = await initializePopulation(alternate, cheap);
+    expect(repeated).toEqual({ ...first, config: alternate });
+    const differentSeed = await initializePopulation(
+      { ...cfg, randomSeed: cfg.randomSeed + 1 },
+      cheap,
+    );
+    expect(differentSeed.population.map((item) => item.genome)).not.toEqual(
+      first.population.map((item) => item.genome),
+    );
+  });
   it("retains exact elites and breeds the whole prior population, not a reset around the champion", async () => {
     const first = await initializePopulation(
       config({ initialization: "random" }),

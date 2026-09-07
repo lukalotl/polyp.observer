@@ -62,6 +62,11 @@ The public website uses Vercel plus a persistent VM backend. See
   while worst-fixture aggregation uses the lowest score. Held-out scores are
   separate. The inspector reports contact times; `F` marks a candidate with any
   failed fixture. Older runs keep their recorded failure policy.
+- **Initialization**: new runs default to independent random rules for every
+  contender. Founder + mutations is an opt-in local search around one rule.
+  Founder controls are inactive in Random rules; the pre-initialization render
+  is labeled as an example, not a contender. Existing runs and parameter forks
+  retain their configured initialization.
 - **New run**: parameter fields or complete JSON configuration. Population,
   elitism, tournament/rank selection, crossover type/probability, per-locus
   mutation, immigrants, initialization, search RNG, fixture seeds, scoring

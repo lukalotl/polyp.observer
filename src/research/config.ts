@@ -23,7 +23,7 @@ export const DEFAULT_RUN_CONFIG: RunConfig = {
   fixtureFailures: "aggregate",
   weights: { diversity: 0.34, activity: 0.3, density: 0.24, variation: 0.12 },
   seedGenome: PRESETS[0].genome.slice(),
-  initialization: "mutants",
+  initialization: "random",
   populationSize: 64,
   eliteCount: 4,
   selection: "tournament",
