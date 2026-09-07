@@ -1007,6 +1007,25 @@ test("compact carousel centers visible specimens, culls offscreen models, and co
     expect(pixels.bottom).toBeLessThan(0.985);
   }
   for (const index of [3, 5, 7]) await expectCentered(index);
+  // Model clicks select candidates without cutting away their time history.
+  const timeline = page.getByRole("slider", { name: "CA timestep" });
+  const fullDepth = await timeline.inputValue();
+  for (const material of ["points", "voxels"]) {
+    await page.getByRole("button", { name: "Inspector view options" }).click();
+    await page.getByLabel("Render material").selectOption(material);
+    await page.getByRole("button", { name: "Inspector view options" }).click();
+    const model = (await options.last().locator(".model-view").boundingBox())!;
+    await page.mouse.click(
+      model.x + model.width / 2,
+      model.y + model.height / 2,
+    );
+    await expect(timeline).toHaveValue(fullDepth);
+    await expect(options.last()).toHaveAttribute("aria-selected", "true");
+  }
+  await timeline.press("ArrowLeft");
+  await expect(timeline).toHaveValue(String(Number(fullDepth) - 1));
+  await timeline.press("End");
+  await expect(timeline).toHaveValue(fullDepth);
   await screenArtifact(page, testInfo, "compact-model-carousel");
   await gallery.press("Home");
   await expect(gallery.locator('[data-rendered="true"]')).toHaveCount(5);

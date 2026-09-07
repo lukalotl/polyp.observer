@@ -850,9 +850,7 @@ export default function Volume(props: VolumeProps) {
                             (selected ? 1 : 0.86),
                         }}
                         onLayerSelect={
-                          selected
-                            ? props.onLayerSelect
-                            : () => gallery.onSelect(index)
+                          selected ? undefined : () => gallery.onSelect(index)
                         }
                       />
                     </GalleryViewport>

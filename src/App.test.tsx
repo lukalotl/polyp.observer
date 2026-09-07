@@ -40,7 +40,7 @@ vi.mock("./components/Volume", () => ({
     viewport.render(props);
     return (
       <button onClick={() => props.onLayerSelect?.(3)}>
-        Inspect rendered layer three
+        Click rendered model
       </button>
     );
   },
@@ -666,9 +666,13 @@ describe("API-backed research workbench", () => {
   it("treats time, closeup, materials and camera as local views, not job mutations", async () => {
     await mountApp();
     const requests = http.requests.length;
+    const fullDepth = volumeProps().visibleLayers;
     fireEvent.click(
-      screen.getByRole("button", { name: "Inspect rendered layer three" }),
+      screen.getByRole("button", { name: "Click rendered model" }),
     );
+    expect(volumeProps().onLayerSelect).toBeUndefined();
+    expect(volumeProps().visibleLayers).toBe(fullDepth);
+    field("CA timestep", 4);
     expect(screen.getByRole("slider", { name: "CA timestep" })).toHaveValue(
       "4",
     );

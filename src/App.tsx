@@ -896,12 +896,6 @@ export default function App() {
                       fitMode="specimen"
                       view={displayMode === "slice" ? "top" : view}
                       resetKey={resetKey}
-                      onLayerSelect={(index) => {
-                        if (displayMode === "volume") {
-                          setPlaying(false);
-                          setVisibleLayers(index + 1);
-                        }
-                      }}
                     />
                   )}
                   {(!frame || previewBusy) && candidates.length === 0 && (
