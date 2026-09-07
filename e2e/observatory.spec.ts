@@ -918,7 +918,7 @@ for (const stateCount of [2, 16]) {
   });
 }
 
-test("carousel centers three specimens, coordinates sources, and supports click and arrow navigation", async ({
+test("compact carousel centers visible specimens, culls offscreen models, and coordinates navigation", async ({
   page,
   request,
 }, testInfo) => {
@@ -942,7 +942,12 @@ test("carousel centers three specimens, coordinates sources, and supports click 
   await expect(options.last()).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Gallery position")).toHaveText("8 / 8");
   await expect(page.locator("canvas")).toHaveCount(1);
-  await expect(gallery.locator(".model-placeholder:visible")).toHaveCount(5);
+  await expect(gallery.locator('[data-rendered="true"]')).toHaveCount(5);
+  const hostWidth = (await gallery.boundingBox())!.width;
+  const slotWidth = (await options.last().boundingBox())!.width;
+  expect(slotWidth).toBeCloseTo(hostWidth / 5, 0);
+  expect(slotWidth).toBeLessThan(260);
+  await expect(options.first()).toHaveAttribute("data-rendered", "false");
 
   // Inspect actual rendered pixels, not just correctly placed DOM boxes. This
   // catches a fresh camera looking at y=0 and cropping a specimen at its base.
@@ -1001,7 +1006,22 @@ test("carousel centers three specimens, coordinates sources, and supports click 
     expect(pixels.top).toBeGreaterThan(0.015);
     expect(pixels.bottom).toBeLessThan(0.985);
   }
-  for (const index of [5, 6, 7]) await expectCentered(index);
+  for (const index of [3, 5, 7]) await expectCentered(index);
+  await screenArtifact(page, testInfo, "compact-model-carousel");
+  await gallery.press("Home");
+  await expect(gallery.locator('[data-rendered="true"]')).toHaveCount(5);
+  await expect(options.first()).toHaveAttribute("data-rendered", "true");
+  await expect(options.last()).toHaveAttribute("data-rendered", "false");
+  // Native horizontal scrolling must load the actual viewport, even before
+  // the selection catches up, and release the models that left it.
+  const area = (await gallery.boundingBox())!;
+  await page.mouse.move(area.x + area.width / 2, area.y + area.height / 2);
+  await page.mouse.wheel(slotWidth * 2, 0);
+  await expect(options.first()).toHaveAttribute("data-rendered", "false");
+  await expect(options.nth(6)).toHaveAttribute("data-rendered", "true");
+  await gallery.press("End");
+  await expect(options.last()).toHaveAttribute("data-rendered", "true");
+  await expect(gallery.locator('[data-rendered="true"]')).toHaveCount(5);
   await options.nth(6).click();
   await expect(options.nth(6)).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Inspected candidate")).toHaveValue(

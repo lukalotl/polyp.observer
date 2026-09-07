@@ -7,11 +7,12 @@ import React, {
   useState,
   useId,
   createRef,
+  useCallback,
 } from "react";
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
 import { OrbitControls, OrthographicCamera } from "@react-three/drei";
 import GalleryViewport, { GalleryClear } from "../rendering/GalleryViewport";
-import { galleryWindow } from "../research/gallery";
+import { galleryLayout, galleryWindow } from "../research/gallery";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import TechnicalStage from "../rendering/TechnicalStage";
@@ -63,6 +64,7 @@ export interface VolumeProps {
     }[];
     index: number;
     onSelect: (index: number) => void;
+    onVisibleChange?: (indices: number[]) => void;
   };
 }
 
@@ -566,12 +568,33 @@ export default function Volume(props: VolumeProps) {
   const [viewportSize, setViewportSize] = useState({ width: 1, height: 1 });
   const id = useId();
   const gallery = props.gallery;
-  const visibleIndices = gallery
-    ? galleryWindow(gallery.items.length, gallery.index)
-    : [];
+  const [visibleIndices, setVisibleIndices] = useState<number[]>([]);
+  const { itemWidth, inset } = galleryLayout(
+    gallery?.items.length ?? 0,
+    viewportSize.width,
+  );
+  const updateVisible = useCallback(() => {
+    const element = track.current;
+    if (!element) return;
+    const next = galleryWindow(
+      gallery?.items.length ?? 0,
+      element.clientWidth,
+      element.scrollLeft,
+    );
+    setVisibleIndices((previous) =>
+      previous.length === next.length &&
+      previous.every((index, offset) => index === next[offset])
+        ? previous
+        : next,
+    );
+  }, [gallery?.items.length]);
+  useEffect(() => {
+    gallery?.onVisibleChange?.(visibleIndices);
+  }, [gallery?.onVisibleChange, visibleIndices]);
   const lastSelection = useRef<string>();
   const pointerStart = useRef<[number, number]>([0, 0]);
   const scrollTarget = useRef(0);
+  const manualScroll = useRef(false);
   const scrollTimer = useRef<ReturnType<typeof setTimeout>>();
   const viewTracks = useRef(new Map<string, React.RefObject<HTMLDivElement>>());
   function viewTrack(key: string) {
@@ -599,6 +622,8 @@ export default function Volume(props: VolumeProps) {
   }, []);
   useLayoutEffect(() => {
     if (!gallery || !track.current) return;
+    clearTimeout(scrollTimer.current);
+    manualScroll.current = false;
     const element = track.current.children[gallery.index] as
       | HTMLElement
       | undefined;
@@ -623,6 +648,7 @@ export default function Volume(props: VolumeProps) {
           : "instant",
     });
     lastSelection.current = identity;
+    updateVisible();
     invalidate.current();
   }, [
     gallery?.index,
@@ -630,6 +656,7 @@ export default function Volume(props: VolumeProps) {
     gallery?.items[gallery.index]?.id,
     viewportSize.width,
     reducedMotion,
+    updateVisible,
   ]);
   useEffect(() => {
     setContextLost(false);
@@ -653,12 +680,24 @@ export default function Volume(props: VolumeProps) {
             className="model-gallery-track"
             style={
               {
-                "--gallery-columns": Math.min(3, gallery.items.length),
+                "--gallery-item-width": `${itemWidth}px`,
+                paddingInline: inset,
               } as React.CSSProperties
             }
+            onWheelCapture={(event) => {
+              if (Math.abs(event.deltaX) > Math.abs(event.deltaY))
+                manualScroll.current = true;
+            }}
+            onTouchMove={() => {
+              manualScroll.current = true;
+            }}
             onScroll={() => {
               invalidate.current();
+              updateVisible();
               clearTimeout(scrollTimer.current);
+              // Camera/keyboard navigation may pause between animation frames
+              // while new specimens mount. Only user scrolling picks a new item.
+              if (!manualScroll.current) return;
               scrollTimer.current = setTimeout(() => {
                 const element = track.current;
                 if (
@@ -666,15 +705,15 @@ export default function Volume(props: VolumeProps) {
                   Math.abs(element.scrollLeft - scrollTarget.current) < 2
                 )
                   return;
-                const width =
-                  element.clientWidth / Math.min(3, gallery.items.length);
+                manualScroll.current = false;
                 gallery.onSelect(
                   Math.max(
                     0,
                     Math.min(
                       gallery.items.length - 1,
                       Math.round(
-                        (element.scrollLeft + element.clientWidth / 2) / width -
+                        (element.scrollLeft + element.clientWidth / 2 - inset) /
+                          itemWidth -
                           0.5,
                       ),
                     ),
@@ -693,6 +732,7 @@ export default function Volume(props: VolumeProps) {
                   className={`model-gallery-item ${selected ? "selected" : ""}`}
                   role="option"
                   aria-selected={selected}
+                  data-rendered={visible && Boolean(item.simulation)}
                   aria-label={`Model ${index + 1}: ${item.id}, ${item.label}`}
                   onPointerDown={(event) => {
                     pointerStart.current = [event.clientX, event.clientY];
@@ -804,10 +844,7 @@ export default function Volume(props: VolumeProps) {
                         }
                         domElement={element.current ?? undefined}
                         viewportSize={{
-                          width:
-                            (viewportSize.width /
-                              Math.min(3, gallery.items.length)) *
-                            (selected ? 1 : 0.86),
+                          width: itemWidth * (selected ? 1 : 0.86),
                           height:
                             Math.max(1, viewportSize.height - 42) *
                             (selected ? 1 : 0.86),

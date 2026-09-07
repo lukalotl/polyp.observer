@@ -10,7 +10,7 @@ export interface ModelPreview {
   error?: string;
 }
 
-/** Two adjacent specimens, fetched serially only after the inspected specimen.
+/** Visible specimens, fetched serially only after the inspected specimen.
  * One WebGL context and a byte/count bounded cache keep large populations cheap.
  * Context includes run, fixture and time range: previews never cross experiments.
  */
@@ -38,6 +38,32 @@ export function useNeighborPreviews({
   useEffect(() => {
     if (!runId || !ready) return;
     const controller = new AbortController();
+    const visibleKeys = new Set(
+      genomes.map((genome) => `${context}:${genome.join(",")}`),
+    );
+    const trimCache = () => {
+      let bytes = [...cache.current.values()].reduce(
+        (sum, entry) => sum + entry.bytes,
+        0,
+      );
+      let changed = false;
+      while (
+        cache.current.size > visibleKeys.size + 1 ||
+        bytes > MAX_PREVIEW_LAYER_BYTES * 2
+      ) {
+        // Visible models own their data; evict offscreen previews first. GPU
+        // scenes unmount as soon as their slots leave the scroll viewport.
+        const oldest = [...cache.current.keys()].find(
+          (key) => !visibleKeys.has(key),
+        );
+        if (oldest === undefined) break;
+        bytes -= cache.current.get(oldest)!.bytes;
+        cache.current.delete(oldest);
+        changed = true;
+      }
+      return changed;
+    };
+    if (trimCache()) refresh((value) => value + 1);
     const timer = setTimeout(() => {
       void (async () => {
         for (const genome of genomes) {
@@ -77,18 +103,7 @@ export function useNeighborPreviews({
             };
           }
           cache.current.set(key, result);
-          let bytes = [...cache.current.values()].reduce(
-            (sum, entry) => sum + entry.bytes,
-            0,
-          );
-          while (
-            cache.current.size > 3 ||
-            (bytes > MAX_PREVIEW_LAYER_BYTES * 2 && cache.current.size > 2)
-          ) {
-            const oldest = cache.current.keys().next().value!;
-            bytes -= cache.current.get(oldest)!.bytes;
-            cache.current.delete(oldest);
-          }
+          trimCache();
           refresh((value) => value + 1);
         }
       })();

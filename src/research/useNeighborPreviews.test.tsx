@@ -95,3 +95,45 @@ it("aborts superseded neighbor requests and never caches a stale fixture or fail
   );
   expect(result.current(genome)?.simulation).toBeUndefined();
 });
+
+it("retains all visible previews and releases old cached data when the viewport moves", async () => {
+  const base = fixture.state.champion.genome;
+  const states = base.length / 9;
+  const genomes = Array.from({ length: 5 }, (_, index) => {
+    const genome = [...base];
+    genome[1] = index % states;
+    genome[2] = Math.floor(index / states);
+    return genome;
+  });
+  const props = {
+    context: "run-a:1729",
+    runId: "run-a",
+    genomes: genomes.slice(0, 4),
+    seed: 1729,
+    ready: true,
+  };
+  const { result, rerender } = renderHook(useNeighborPreviews, {
+    initialProps: props,
+  });
+  await act(() => vi.advanceTimersByTimeAsync(200));
+  for (const genome of genomes.slice(0, 4)) {
+    await http.reply(
+      "/api/runs/run-a/preview",
+      previewFor(fixture.detail, genome, 1729),
+      "POST",
+    );
+  }
+  expect(
+    genomes.slice(0, 4).every((genome) => result.current(genome)?.simulation),
+  ).toBe(true);
+  expect(http.requests).toHaveLength(4);
+  rerender({ ...props, genomes: [genomes[4]] });
+  await act(() => vi.advanceTimersByTimeAsync(200));
+  await http.reply(
+    "/api/runs/run-a/preview",
+    previewFor(fixture.detail, genomes[4], 1729),
+    "POST",
+  );
+  expect(result.current(genomes[4])?.simulation).toBeDefined();
+  expect(genomes.filter((genome) => result.current(genome))).toHaveLength(2);
+});

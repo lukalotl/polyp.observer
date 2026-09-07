@@ -84,6 +84,7 @@ export default function App() {
     "best",
   );
   const [galleryCursor, setGalleryCursor] = useState<string | null>(null);
+  const [galleryVisible, setGalleryVisible] = useState<number[]>([]);
   const [frameContext, setFrameContext] = useState("");
   const [storedFrame, setFrame] = useState<PreviewFrame | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -140,9 +141,9 @@ export default function App() {
   const neighborPreview = useNeighborPreviews({
     context: previewContext,
     runId: lab.selectedId ?? undefined,
-    genomes: galleryNeighbors(candidates.length, candidateIndex).map(
-      (index) => candidates[index].individual.genome,
-    ),
+    genomes: galleryNeighbors(galleryVisible, candidateIndex)
+      .filter((index) => candidates[index])
+      .map((index) => candidates[index].individual.genome),
     seed: previewSeed,
     range: previewRange,
     ready: Boolean(frame) && !previewBusy && lab.connection !== "reconnecting",
@@ -838,6 +839,7 @@ export default function App() {
                           ? {
                               index: candidateIndex,
                               onSelect: selectGalleryIndex,
+                              onVisibleChange: setGalleryVisible,
                               items: candidates.map((candidate, index) => {
                                 const neighbor = neighborPreview(
                                   candidate.individual.genome,

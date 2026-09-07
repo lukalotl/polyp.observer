@@ -1678,7 +1678,7 @@ input[type="range"]:disabled {
 }
 .model-gallery-item {
   position: relative;
-  flex: 0 0 calc(100% / var(--gallery-columns, 1));
+  flex: 0 0 var(--gallery-item-width, 100%);
   min-width: 0;
   cursor: pointer;
 }
@@ -1712,11 +1712,11 @@ input[type="range"]:disabled {
 .model-caption {
   position: absolute;
   bottom: 14px;
-  left: 10%;
-  right: 10%;
+  left: 5%;
+  right: 5%;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   color: #8da5a1;
   font: 9px var(--mono);
   pointer-events: none;

@@ -5,6 +5,7 @@ import {
   galleryIndex,
   galleryNeighbors,
   galleryWindow,
+  galleryLayout,
 } from "./gallery";
 
 let fixture: Awaited<ReturnType<typeof researchFixture>>;
@@ -74,12 +75,32 @@ describe("model gallery sources and cursor", () => {
       ),
     ).toEqual([chosen]);
   });
-  it("keeps three actual models visible at both ends of a large population", () => {
-    expect(galleryWindow(512, 511)).toEqual([509, 510, 511]);
-    expect(galleryNeighbors(512, 511)).toEqual([510, 509]);
-    expect(galleryWindow(512, 0)).toEqual([0, 1, 2]);
-    expect(galleryNeighbors(512, 240)).toEqual([239, 241]);
-    expect(galleryWindow(2, 1)).toEqual([0, 1]);
-    expect(galleryWindow(0, -1)).toEqual([]);
+  it("fits five compact models in a laptop viewport and culls the rest of a large population", () => {
+    expect(galleryLayout(512, 1200)).toEqual({ itemWidth: 240, inset: 0 });
+    expect(galleryWindow(512, 1200, 507 * 240)).toEqual([
+      507, 508, 509, 510, 511,
+    ]);
+    expect(galleryNeighbors(galleryWindow(512, 1200, 507 * 240), 511)).toEqual([
+      510, 509, 508, 507,
+    ]);
+    expect(galleryWindow(512, 1200, 0)).toEqual([0, 1, 2, 3, 4]);
+    expect(galleryWindow(512, 1200, 238 * 240)).toEqual([
+      238, 239, 240, 241, 242,
+    ]);
+  });
+  it("tracks partial items while panning, including when selection is offscreen", () => {
+    expect(galleryWindow(512, 1200, 120)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(galleryWindow(512, 1200, 1200)).toEqual([5, 6, 7, 8, 9]);
+    expect(galleryWindow(512, 1208, Math.round((3 * 1208) / 5))).toEqual([
+      3, 4, 5, 6, 7,
+    ]);
+  });
+  it("adapts to small screens and keeps short lists grouped instead of spreading them apart", () => {
+    expect(galleryLayout(2, 1200)).toEqual({ itemWidth: 240, inset: 360 });
+    expect(galleryWindow(2, 1200, 0)).toEqual([0, 1]);
+    expect(galleryWindow(512, 390, 0)).toEqual([0, 1]);
+    expect(galleryLayout(1, 1200)).toEqual({ itemWidth: 1200, inset: 0 });
+    expect(galleryWindow(0, 1200, 0)).toEqual([]);
+    expect(galleryWindow(512, 0, 0)).toEqual([]);
   });
 });

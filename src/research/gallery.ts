@@ -52,14 +52,37 @@ export function galleryIndex(
   return found < 0 ? items.length - 1 : found;
 }
 
-export function galleryNeighbors(length: number, index: number): number[] {
-  return galleryWindow(length, index)
+export function galleryNeighbors(visible: number[], index: number): number[] {
+  return visible
     .filter((value) => value !== index)
     .sort((a, b) => Math.abs(a - index) - Math.abs(b - index));
 }
 
-export function galleryWindow(length: number, index: number): number[] {
-  const count = Math.min(3, length);
-  const start = Math.max(0, Math.min(index - 1, length - count));
-  return Array.from({ length: count }, (_, offset) => start + offset);
+/** Compact slots fit about five specimens on a laptop; short lists stay grouped. */
+export function galleryLayout(length: number, width: number) {
+  const columns =
+    length === 1 ? 1 : Math.max(2, Math.min(6, Math.floor(width / 220)));
+  const itemWidth = Math.max(1, width) / columns;
+  return { itemWidth, inset: Math.max(0, (width - length * itemWidth) / 2) };
+}
+
+/** Use the actual scroll viewport, including partial items during a pan.
+ * A half-pixel tolerance ignores subpixel rounding at the viewport's edges.
+ */
+export function galleryWindow(
+  length: number,
+  width: number,
+  scrollLeft: number,
+): number[] {
+  if (width <= 0 || length === 0) return [];
+  const { itemWidth, inset } = galleryLayout(length, width);
+  const start = Math.max(0, Math.floor((scrollLeft - inset + 0.5) / itemWidth));
+  const end = Math.min(
+    length,
+    Math.ceil((scrollLeft + width - inset - 0.5) / itemWidth),
+  );
+  return Array.from(
+    { length: Math.max(0, end - start) },
+    (_, offset) => start + offset,
+  );
 }
