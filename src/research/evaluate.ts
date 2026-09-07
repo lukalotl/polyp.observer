@@ -1,3 +1,4 @@
+import { scoreIncentives } from "./incentives";
 import type { Genome } from "../simulation";
 import { validateGenome, validateRunConfig } from "./config";
 import { isDisqualified } from "./boundaries";
@@ -48,7 +49,42 @@ function fixture(
     extinctFraction: extinct ? 1 : 0,
   };
   let score: number;
-  if (config.objective === "longevity")
+  if (config.incentives) {
+    const contacts = simulation.boundaryContacts;
+    score = scoreIncentives(config.incentives, {
+      diversity,
+      activity,
+      density,
+      variation,
+      persistence,
+      occupancy,
+      lifetime,
+      extinct: Number(extinct),
+      initialPopulation: population[0],
+      finalPopulation: final,
+      peakPopulation: population.reduce(
+        (peak, count) => Math.max(peak, count),
+        0,
+      ),
+      totalCells: population.reduce((sum, count) => sum + count, 0),
+      exposedCells: simulation.exposedCells,
+      reusedCells: simulation.reusedCells,
+      reuseEvents: simulation.reuseEvents,
+      cellDeaths: simulation.cellDeaths,
+      meanPopulation: mean,
+      populationVariance: variance,
+      spatialContact: Number(
+        [contacts.left, contacts.right, contacts.front, contacts.back].some(
+          (time) => time !== null,
+        ),
+      ),
+      cutoffContact: Number(contacts.horizon),
+      size,
+      area,
+      steps,
+      stateCount: config.stateCount,
+    });
+  } else if (config.objective === "longevity")
     score = extinct ? clamp(lifetime / Math.max(1, steps - 1)) : 0;
   else if (
     config.objective === "finiteSparse" ||
@@ -79,7 +115,7 @@ function fixture(
   const finiteCells =
     config.objective === "finiteSparse" || config.objective === "finiteDense";
   const disqualified =
-    (finiteCells && (!extinct || lifetime === 0)) ||
+    (!config.incentives && finiteCells && (!extinct || lifetime === 0)) ||
     isDisqualified(simulation.boundaryContacts, config.boundaryPolicy);
   return { score: disqualified ? 0 : score, metrics, disqualified };
 }

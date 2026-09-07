@@ -14,12 +14,15 @@ function evaluationKey(config: RunConfig) {
     config.seed === "soup" ? config.soupSize : null,
     config.trainingSeeds,
     config.validationSeeds,
-    config.objective,
+    config.incentives?.map(({ expression, weight }) => [expression, weight]) ??
+      config.objective,
     config.boundaryPolicy?.spatial ?? false,
     config.boundaryPolicy?.horizon ?? false,
     config.aggregation,
     config.fixtureFailures ?? "all",
-    config.objective === "complexity" ? config.weights : null,
+    !config.incentives && config.objective === "complexity"
+      ? config.weights
+      : null,
   ]);
 }
 export default function ComparisonView({

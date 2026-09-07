@@ -153,8 +153,9 @@ export function validateEvaluation(
   if (
     (!config.boundaryPolicy.spatial &&
       !config.boundaryPolicy.horizon &&
-      config.objective !== "finiteSparse" &&
-      config.objective !== "finiteDense" &&
+      (config.incentives ||
+        (config.objective !== "finiteSparse" &&
+          config.objective !== "finiteDense")) &&
       (disqualified || validationDisqualified)) ||
     (disqualified && !trainingScores.includes(0)) ||
     (validationDisqualified && !validationScores.includes(0))

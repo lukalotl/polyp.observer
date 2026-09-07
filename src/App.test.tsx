@@ -16,6 +16,7 @@ import {
   vi,
 } from "vitest";
 import App from "./App";
+import { incentivesForConfig, presetIncentive } from "./research/incentives";
 import RunDialog from "./components/research/RunDialog";
 import type { VolumeProps } from "./components/Volume";
 import type { RunConfig } from "./research/types";
@@ -89,6 +90,97 @@ async function submit(name = "Create paused") {
 }
 
 describe("complete, immutable run configuration", () => {
+  it("creates, edits, weights, removes and round-trips safe custom incentives", async () => {
+    const initial = smallConfig();
+    const { onCreate } = dialog(initial);
+    expect(
+      screen.queryByLabelText("Objective", { exact: true }),
+    ).not.toBeInTheDocument();
+    const picker = screen.getByRole("combobox", { name: "Add incentive" });
+    expect(within(picker).getAllByRole("option")[0]).toHaveValue("new");
+    field("Add incentive", "new");
+    const editor = screen.getByRole("dialog", {
+      name: "New incentive",
+    });
+    expect(within(editor).getByText("Available variables")).toBeVisible();
+    field("Incentive name", "Small and finite");
+    field("Math formula", "process.exit()");
+    expect(
+      within(editor).getByRole("button", {
+        name: "Add incentive",
+      }),
+    ).toBeDisabled();
+    expect(within(editor).getByRole("status")).toHaveTextContent(
+      /Unsupported character|Unknown/,
+    );
+    field("Math formula", "extinct * (1 - totalCells / (area * steps))");
+    expect(within(editor).getByRole("status")).toHaveTextContent(
+      "Valid formula",
+    );
+    fireEvent.click(
+      within(editor).getByRole("button", {
+        name: "Add incentive",
+      }),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "New incentive" }),
+    ).not.toBeInTheDocument();
+    field("Incentive 2 weight", 3);
+    expect(
+      screen.getByRole("list", { name: "Scoring incentives" }),
+    ).toHaveTextContent("75.0%");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit incentive 2: Small and finite",
+      }),
+    );
+    field("Math formula", "extinct * (1 - occupancy)");
+    fireEvent.click(screen.getByRole("button", { name: "Save incentive" }));
+    field("Add incentive", "activity");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove incentive 3: Motion" }),
+    );
+    const expected = [
+      ...incentivesForConfig(initial),
+      {
+        name: "Small and finite",
+        expression: "extinct * (1 - occupancy)",
+        weight: 3,
+      },
+    ];
+    fireEvent.click(screen.getByLabelText("Edit configuration JSON"));
+    expect(
+      JSON.parse(
+        (screen.getByLabelText("Configuration JSON") as HTMLTextAreaElement)
+          .value,
+      ).incentives,
+    ).toEqual(expected);
+    fireEvent.click(screen.getByLabelText("Use parameter fields"));
+    await submit();
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ incentives: expected }),
+      false,
+    );
+    expect(initial.incentives).toBeUndefined();
+  });
+  it("rejects empty or all-disabled incentive lists and cancels a custom edit without changing the run", async () => {
+    const { onCreate, onClose } = dialog();
+    field("Add incentive", "new");
+    field("Incentive name", "Unsaved");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close incentive editor" }),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    field("Incentive 1 weight", 0);
+    await submit();
+    expect(screen.getByRole("alert")).toHaveTextContent(/positive weight/);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove incentive 1:/ }),
+    );
+    await submit();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Add 1–16 incentives/);
+    expect(onCreate).not.toHaveBeenCalled();
+  });
   it("configures soup dimensions and finite scoring with diverse default fixtures", async () => {
     const { onCreate } = dialog();
     field("Seed pattern", "soup");
@@ -97,14 +189,17 @@ describe("complete, immutable run configuration", () => {
       "1729, 1730, 1731, 1732",
     );
     field("Soup size N", 6);
-    field("Objective", "finiteSparse");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove incentive 1:/ }),
+    );
+    field("Add incentive", "finiteSparse");
     field("Aggregation", "minimum");
     await submit();
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         seed: "soup",
         soupSize: 6,
-        objective: "finiteSparse",
+        incentives: [presetIncentive("finiteSparse")],
         aggregation: "minimum",
         trainingSeeds: [1729, 1730, 1731, 1732],
         validationSeeds: [2718, 2719],
@@ -117,11 +212,14 @@ describe("complete, immutable run configuration", () => {
     field("Training seeds", "15, 16");
     field("Held-out seeds", "99");
     field("Seed pattern", "soup");
-    field("Objective", "finiteDense");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove incentive 1:/ }),
+    );
+    field("Add incentive", "finiteDense");
     await submit();
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        objective: "finiteDense",
+        incentives: [presetIncentive("finiteDense")],
         trainingSeeds: [15, 16],
         validationSeeds: [99],
       }),
@@ -190,12 +288,16 @@ describe("complete, immutable run configuration", () => {
     field("Seed pattern", "islands");
     field("Training seeds", "11, 22");
     field("Held-out seeds", "33, 44");
-    field("Objective", "complexity");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove incentive 1:/ }),
+    );
+    for (const id of ["diversity", "activity", "density", "variation"])
+      field("Add incentive", id);
     field("Aggregation", "minimum");
-    field("State entropy weight", 0.1);
-    field("Motion weight", 0.2);
-    field("Density weight", 0.3);
-    field("Variation weight", 0.4);
+    field("Incentive 1 weight", 0.1);
+    field("Incentive 2 weight", 0.2);
+    field("Incentive 3 weight", 0.3);
+    field("Incentive 4 weight", 0.4);
     field("Population", 16);
     field("Elites", 3);
     field("Selection", "rank");
@@ -230,9 +332,13 @@ describe("complete, immutable run configuration", () => {
       seed: "islands",
       trainingSeeds: [11, 22],
       validationSeeds: [33, 44],
-      objective: "complexity",
       aggregation: "minimum",
-      weights: { diversity: 0.1, activity: 0.2, density: 0.3, variation: 0.4 },
+      incentives: ["diversity", "activity", "density", "variation"].map(
+        (id, i) => ({
+          ...presetIncentive(id),
+          weight: [0.1, 0.2, 0.3, 0.4][i],
+        }),
+      ),
       populationSize: 16,
       eliteCount: 3,
       selection: "rank",
@@ -266,6 +372,7 @@ describe("complete, immutable run configuration", () => {
       name: "JSON experiment",
       seed: "islands",
       objective: "growth",
+      incentives: [presetIncentive("growth")],
       aggregation: "minimum",
       trainingSeeds: [12, 34],
       validationSeeds: [56],
@@ -278,9 +385,12 @@ describe("complete, immutable run configuration", () => {
       screen.getByRole("button", { name: "Use parameter fields" }),
     );
     expect(screen.getByLabelText("Run name")).toHaveValue("JSON experiment");
-    expect(screen.getByLabelText("Objective", { exact: true })).toHaveValue(
-      "growth",
-    );
+    expect(
+      screen.queryByLabelText("Objective", { exact: true }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("list", { name: "Scoring incentives" }),
+    ).toHaveTextContent("Growth");
     expect(screen.getByLabelText("Generation limit")).toHaveValue(0);
     expect(screen.getByText("0 = train until paused.")).toBeVisible();
     fireEvent.click(
@@ -1087,6 +1197,7 @@ describe("API-backed research workbench", () => {
     );
     expect(config).toEqual({
       ...source.config,
+      incentives: incentivesForConfig(source.config),
       name: `${source.config.name} · variant`,
       seedGenome: source.snapshot!.champion.genome,
       initialization: "mutants",
@@ -1100,6 +1211,7 @@ describe("API-backed research workbench", () => {
   });
   it.each<Partial<RunConfig>>([
     { objective: "growth" },
+    { incentives: [presetIncentive("growth")] },
     { boundaryPolicy: { spatial: false, horizon: true } },
     { boundaryPolicy: { spatial: true, horizon: false } },
   ])(

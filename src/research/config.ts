@@ -1,3 +1,4 @@
+import { validateIncentives } from "./incentives";
 import { PRESETS, type Genome } from "../simulation";
 import { MIN_STATE_COUNT, MAX_STATE_COUNT } from "./genome";
 import {
@@ -141,6 +142,7 @@ export function validateRunConfig(value: unknown): RunConfig {
       ),
       ...(Object.hasOwn(v, "fixtureFailures") ? ["fixtureFailures"] : []),
       ...(Object.hasOwn(v, "soupSize") ? ["soupSize"] : []),
+      ...(Object.hasOwn(v, "incentives") ? ["incentives"] : []),
     ],
     "Configuration",
   );
@@ -201,6 +203,9 @@ export function validateRunConfig(value: unknown): RunConfig {
       "Training and held-out seeds must not overlap (including uint32 RNG aliases).",
     );
   return {
+    ...(Object.hasOwn(v, "incentives")
+      ? { incentives: validateIncentives(v.incentives) }
+      : {}),
     name: v.name,
     stateCount,
     size,

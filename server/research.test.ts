@@ -354,6 +354,7 @@ test(
         trainingScores: individual.trainingScores,
         validationScores: individual.validationScores,
         metrics: individual.metrics,
+        fixturePasses: individual.fixturePasses,
       });
       const training = config.trainingSeeds.map((seed) =>
         oracleMetrics(individual.genome, config, seed),
@@ -1677,5 +1678,65 @@ test(
         .soupSize,
       4,
     );
+  },
+);
+
+test(
+  "custom incentives survive native workers and checkpoint import with the same next generation",
+  { timeout: 25000 },
+  async (t) => {
+    const f = await fixture(t);
+    const config = tiny({
+      seed: "soup",
+      soupSize: 5,
+      boundaryPolicy: { spatial: false, horizon: false },
+      incentives: [
+        {
+          name: "Small finite volume",
+          expression: "if(extinct, 1 - totalCells / (area * steps), 0)",
+          weight: 3,
+        },
+        {
+          name: "Persistence",
+          expression:
+            "(exposedCells / area + persistence) / (2 * (1 + reuseEvents + reusedCells + cellDeaths))",
+          weight: 1,
+        },
+      ],
+      maxGenerations: 0,
+    });
+    const one = await create(f.server, config);
+    const two = await create(
+      f.server,
+      { ...config, evaluationWorkers: 2 },
+      false,
+    );
+    for (let generation = 0; generation <= 3; generation++)
+      await Promise.all([
+        step(f.server, one.summary.id),
+        step(f.server, two.summary.id),
+      ]);
+    const first = await checkpoint(f.server, one.summary.id);
+    const second = await checkpoint(f.server, two.summary.id);
+    assert.deepEqual(geneticState(first.state!), geneticState(second.state!));
+    assert.deepEqual(first.state, await reference(config, 3));
+    assert.deepEqual(first.config.incentives, config.incentives);
+    const imported = await api(f.server, "runs/import", { checkpoint: first });
+    const restored = await checkpoint(f.server, imported.summary.id);
+    assert.deepEqual(restored.state, first.state);
+    assert.deepEqual(
+      await advanceGeneration(restored.state!),
+      await advanceGeneration(first.state!),
+    );
+    const bad = await response(f.server, "runs", {
+      config: {
+        ...config,
+        incentives: [
+          { name: "Unsafe", expression: "process.exit()", weight: 1 },
+        ],
+      },
+      start: false,
+    });
+    assert.equal(bad.status, 400);
   },
 );

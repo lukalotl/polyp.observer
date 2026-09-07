@@ -15,6 +15,8 @@ import {
 } from "../../research/limits";
 import type { RunConfig } from "../../research/types";
 import { trapDialogTab } from "../../dialogFocus";
+import { incentivesForConfig } from "../../research/incentives";
+import IncentiveList from "./IncentiveList";
 import RuleEditor from "../RuleEditor";
 
 interface Props {
@@ -54,6 +56,7 @@ export default function RunDialog({
   const [draft, setDraft] = useState<RunConfig>(() => ({
     ...structuredClone(initial),
     fixtureFailures: "aggregate",
+    incentives: incentivesForConfig(initial),
   }));
   const [trainText, setTrainText] = useState(initial.trainingSeeds.join(", "));
   const [validationText, setValidationText] = useState(
@@ -116,7 +119,9 @@ export default function RunDialog({
   function switchEditor() {
     try {
       const config = composed();
-      setDraft(config);
+      setDraft(
+        raw ? { ...config, incentives: incentivesForConfig(config) } : config,
+      );
       setTrainText(config.trainingSeeds.join(", "));
       setValidationText(config.validationSeeds.join(", "));
       setJson(JSON.stringify(config, null, 2));
@@ -138,7 +143,10 @@ export default function RunDialog({
     validationText.split(",").filter((value) => value.trim()).length;
   const populationWork =
     draft.size * draft.size * draft.steps * draft.populationSize * fixtureCount;
-  const scoringBytes = 2 * (draft.size + 2) ** 2 + draft.steps * 8;
+  const scoringBytes =
+    2 * (draft.size + 2) ** 2 +
+    draft.steps * 8 +
+    8 * Math.ceil(draft.size ** 2 / 32);
   return (
     <dialog
       ref={dialog}
@@ -199,6 +207,73 @@ export default function RunDialog({
               />
             </label>
             <div className="config-grid">
+              <fieldset className="scoring-config">
+                <legend>Scoring incentives</legend>
+                <IncentiveList
+                  value={incentivesForConfig(draft)}
+                  onChange={(value) => update("incentives", value)}
+                />
+                <h3 className="incentive-section-label">Hard constraints</h3>
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={draft.boundaryPolicy?.spatial ?? false}
+                    onChange={(event) =>
+                      update("boundaryPolicy", {
+                        ...draft.boundaryPolicy,
+                        spatial: event.target.checked,
+                      })
+                    }
+                  />
+                  Disqualify spatial edge contact
+                </label>
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={draft.boundaryPolicy?.horizon ?? false}
+                    onChange={(event) =>
+                      update("boundaryPolicy", {
+                        ...draft.boundaryPolicy,
+                        horizon: event.target.checked,
+                      })
+                    }
+                  />
+                  Disqualify time cutoff contact
+                </label>
+                <p className="config-note">
+                  Any occupied cell touching the left, right, front or back
+                  edge, or remaining at the final timestep, counts as contact.
+                  These constraints override all incentives. A disqualified
+                  fixture contributes zero to the chosen aggregation. Held-out
+                  fixtures are assessed separately. Disable a boundary policy to
+                  reward avoiding contact with a soft incentive instead of
+                  disqualifying the fixture.
+                </p>
+                <label className="config-field">
+                  <span>Aggregation</span>
+                  <select
+                    aria-label="Aggregation"
+                    value={draft.aggregation}
+                    onChange={(event) =>
+                      update(
+                        "aggregation",
+                        event.target.value as RunConfig["aggregation"],
+                      )
+                    }
+                  >
+                    <option value="mean">Mean of fixtures</option>
+                    <option value="minimum">Worst fixture</option>
+                  </select>
+                </label>
+                <p className="config-note">
+                  Mean averages all fixture scores, including zero for each
+                  failure, so it rewards rules that fail less often. Worst
+                  fixture uses the lowest score, so any failure gives zero. One
+                  successful fixture scoring 0.8 and one failure give mean 0.4
+                  or worst 0. Held-out scores use the same aggregation
+                  separately.
+                </p>
+              </fieldset>
               <fieldset>
                 <legend>Evaluation</legend>
                 <label className="config-field">
@@ -357,144 +432,6 @@ export default function RunDialog({
                     Point and cross ignore fixture seeds. Use islands or soup
                     for distinct training and held-out fixtures.
                   </p>
-                )}
-                <label className="config-field">
-                  <span>Objective</span>
-                  <select
-                    aria-label="Objective"
-                    value={draft.objective}
-                    onChange={(event) =>
-                      update(
-                        "objective",
-                        event.target.value as RunConfig["objective"],
-                      )
-                    }
-                  >
-                    <option value="longevity">Finite longevity</option>
-                    <option value="finiteSparse">Finite · fewer cells</option>
-                    <option value="finiteDense">Finite · more cells</option>
-                    <option value="complexity">Complexity heuristic</option>
-                    <option value="growth">Growth</option>
-                  </select>
-                </label>
-                {(draft.objective === "finiteSparse" ||
-                  draft.objective === "finiteDense") && (
-                  <p className="config-note">
-                    Counts occupied cells across every timestep, including the
-                    seed.
-                    {draft.objective === "finiteSparse"
-                      ? " Rewards smaller spacetime volumes: score = 1 − occupied fraction. Immediate extinction is favored."
-                      : " Rewards larger spacetime volumes: score = occupied fraction."}{" "}
-                    A fixture must start nonempty and be extinct by the final
-                    timestep to score. Failed fixtures contribute zero. Mean
-                    rewards average success; Worst fixture requires every
-                    fixture to succeed. Held-out fixtures are assessed
-                    separately.
-                  </p>
-                )}
-                {draft.objective === "longevity" && (
-                  <p className="config-note">
-                    Rewards the longest lifetime that ends within the horizon.
-                    Still alive at the cutoff scores zero; increase the horizon
-                    to observe longer finite lifetimes.
-                  </p>
-                )}
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={draft.boundaryPolicy?.spatial ?? false}
-                    onChange={(event) =>
-                      update("boundaryPolicy", {
-                        ...draft.boundaryPolicy,
-                        spatial: event.target.checked,
-                      })
-                    }
-                  />
-                  Disqualify spatial edge contact
-                </label>
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={draft.boundaryPolicy?.horizon ?? false}
-                    onChange={(event) =>
-                      update("boundaryPolicy", {
-                        ...draft.boundaryPolicy,
-                        horizon: event.target.checked,
-                      })
-                    }
-                  />
-                  Disqualify time cutoff contact
-                </label>
-                <p className="config-note">
-                  Any occupied cell touching the left, right, front or back
-                  edge, or remaining at the final timestep, counts as contact. A
-                  disqualified fixture contributes zero to the chosen
-                  aggregation. Held-out fixtures are assessed separately. All
-                  finite objectives require extinction before the cutoff, even
-                  with cutoff disqualification off.
-                </p>
-                <label className="config-field">
-                  <span>Aggregation</span>
-                  <select
-                    aria-label="Aggregation"
-                    value={draft.aggregation}
-                    onChange={(event) =>
-                      update(
-                        "aggregation",
-                        event.target.value as RunConfig["aggregation"],
-                      )
-                    }
-                  >
-                    <option value="mean">Mean of fixtures</option>
-                    <option value="minimum">Worst fixture</option>
-                  </select>
-                </label>
-                <p className="config-note">
-                  Mean averages all fixture scores, including zero for each
-                  failure, so it rewards rules that fail less often. Worst
-                  fixture uses the lowest score, so any failure gives zero. One
-                  successful fixture scoring 0.8 and one failure give mean 0.4
-                  or worst 0. Held-out scores use the same aggregation
-                  separately.
-                </p>
-                {draft.objective === "complexity" && (
-                  <div className="weight-fields">
-                    {(
-                      [
-                        ["diversity", "State entropy"],
-                        ["activity", "Motion"],
-                        ["density", "Density"],
-                        ["variation", "Variation"],
-                      ] as const
-                    ).map(([key, label]) => (
-                      <label key={key}>
-                        <span>{label}</span>
-                        <input
-                          aria-label={`${label} weight`}
-                          type="number"
-                          min="0"
-                          max="10"
-                          step="0.01"
-                          value={
-                            Number.isFinite(draft.weights[key])
-                              ? draft.weights[key]
-                              : ""
-                          }
-                          onChange={(event) =>
-                            update("weights", {
-                              ...draft.weights,
-                              [key]: event.target.valueAsNumber,
-                            })
-                          }
-                        />
-                      </label>
-                    ))}
-                    <small>
-                      Weights are normalized; persistence scales the result.
-                      {draft.stateCount === 2 &&
-                        " Binary rules have one occupied state, so state entropy is zero. Set its weight to 0 to use only the other components."}
-                    </small>
-                  </div>
                 )}
               </fieldset>
               <fieldset>

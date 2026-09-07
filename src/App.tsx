@@ -986,8 +986,9 @@ export default function App() {
                                 frame.boundaryContacts,
                                 detail.config.boundaryPolicy,
                               ) ||
-                              ((detail.config.objective === "finiteSparse" ||
-                                detail.config.objective === "finiteDense") &&
+                              (!detail.config.incentives &&
+                                (detail.config.objective === "finiteSparse" ||
+                                  detail.config.objective === "finiteDense") &&
                                 (!frame.simulation.extinct ||
                                   frame.simulation.lifetime === 0))
                                 ? "Disqualified · "

@@ -23,6 +23,8 @@ export interface FitnessWeights {
   variation: number;
 }
 export interface RunConfig {
+  /** When present, replaces legacy objective/weights scoring. */
+  incentives?: import("./incentives").Incentive[];
   name: string;
   stateCount: number;
   size: number;

@@ -1,4 +1,8 @@
 import { readFile } from "node:fs/promises";
+import {
+  incentivesForConfig,
+  presetIncentive,
+} from "../src/research/incentives";
 import { PRESETS } from "../src/simulation";
 import {
   expect,
@@ -151,6 +155,11 @@ async function createRun(
     mutationRate: 0.12,
     ...overrides,
   };
+  if (overrides.objective && !overrides.incentives)
+    config.incentives = incentivesForConfig({
+      ...config,
+      incentives: undefined,
+    });
   await editor.fill(JSON.stringify(config, null, 2));
   // Switching back verifies JSON is accepted by the same editable fields users use.
   await dialog.getByRole("button", { name: "Use parameter fields" }).click();
@@ -183,6 +192,13 @@ async function createRun(
       exact: true,
     }),
   ).toHaveAttribute("aria-pressed", "true");
+  if (
+    (page.viewportSize()?.width ?? 1440) < 700 &&
+    (await page
+      .getByRole("button", { name: "Toggle run registry" })
+      .getAttribute("aria-pressed")) === "true"
+  )
+    await page.getByRole("button", { name: "Toggle run registry" }).click();
   if (!autoplay && (await page.getByLabel("Pause CA playback").isVisible()))
     await page.getByLabel("Pause CA playback").click();
   return run;
@@ -356,14 +372,14 @@ test("boundary settings disqualify spatial contact in the real evaluator and sho
     ),
   ).toBe(true);
   const reason = page.getByLabel("Fixture boundary contacts");
-  await expect(reason).toContainText("Fixture disqualified");
+  await expect(reason).toContainText("Disqualified ·");
   await expect(reason).toContainText("left at t=3");
   await expect(reason).toContainText("right at t=12");
   await expect(reason).toContainText("front at t=8");
   await page.getByRole("tab", { name: "Population", exact: true }).click();
   await expect(
     page.getByRole("table", { name: "Population ranked by training fitness" }),
-  ).toContainText("0 · DQ");
+  ).toContainText("0.0000 · F");
   await page
     .getByRole("button", { name: "New run", exact: true })
     .first()
@@ -434,9 +450,11 @@ test("the default finite-longevity run uses deep scale and previews its full 2,0
     dialog.getByRole("combobox", { name: "Simulation scale" }),
   ).toHaveValue("deep");
   await expect(
-    dialog.getByRole("combobox", { name: "Objective", exact: true }),
-  ).toHaveValue("longevity");
-  await expect(dialog).toContainText("Still alive at the cutoff scores zero");
+    dialog.getByRole("list", { name: "Scoring incentives" }),
+  ).toContainText("Finite longevity");
+  await expect(dialog).toContainText(
+    "Still alive scores zero for this incentive",
+  );
   await dialog
     .getByRole("textbox", { name: "Run name", exact: true })
     .fill(`e2e-default-depth-${Date.now()}`);
@@ -475,9 +493,12 @@ test("the default finite-longevity run uses deep scale and previews its full 2,0
   expect(frame.encoding).toBe("adaptive-v1");
   expect(frame.stride).toBe(1);
   expect(frame.layerTimes).toEqual(Array.from({ length: 2048 }, (_, i) => i));
+  await page.getByLabel("Pause CA playback").click();
+  await page.getByRole("slider", { name: "CA timestep" }).press("End");
   await expect(
     page.getByRole("region", { name: "Champion inspector" }),
   ).toContainText("2047 / 2047");
+  await expect(page.getByText("3D view unavailable")).not.toBeVisible();
   await expect(dialog).not.toBeVisible();
   await screenArtifact(page, testInfo, "default-deep-preview");
   const mutations = observations.get(page)!.mutations.length;
@@ -1202,4 +1223,143 @@ test("sidebar context menu starts and stops a different run without moving selec
   expect((await detail(request, second.summary.id)).summary.generation).toBe(
     -1,
   );
+});
+
+test("weighted custom incentives are edited safely and scored by the VM", async ({
+  page,
+  request,
+}, testInfo) => {
+  await open(page);
+  await page
+    .getByRole("button", { name: "New run", exact: true })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog", { name: "New run", exact: true });
+  await expect(dialog.getByLabel("Objective", { exact: true })).toHaveCount(0);
+  const scoring = dialog.getByRole("group", {
+    name: "Scoring incentives",
+    exact: true,
+  });
+  await expect(
+    scoring.getByLabel("Disqualify spatial edge contact"),
+  ).toBeChecked();
+  await expect(
+    scoring.getByLabel("Disqualify time cutoff contact"),
+  ).toBeChecked();
+  await dialog.getByLabel("Edit configuration JSON").click();
+  const json = dialog.getByLabel("Configuration JSON");
+  const config = {
+    ...JSON.parse(await json.inputValue()),
+    name: `e2e-incentives-${Date.now()}`,
+    size: 9,
+    steps: 8,
+    seed: "point",
+    seedGenome: Array(45).fill(0),
+    populationSize: 8,
+    eliteCount: 2,
+    mutationRate: 0,
+    immigrantRate: 0,
+    evaluationWorkers: 1,
+  };
+  await json.fill(JSON.stringify(config));
+  await dialog.getByLabel("Use parameter fields").click();
+  await scoring
+    .getByLabel("Add incentive", { exact: true })
+    .selectOption("new");
+  let editor = page.getByRole("dialog", { name: "New incentive", exact: true });
+  await expect(editor).toBeVisible();
+  await editor.getByLabel("Incentive name").fill("Occupied volume");
+  await editor.getByLabel("Math formula").fill("globalThis.process.exit()");
+  await expect(
+    editor.getByRole("button", { name: "Add incentive", exact: true }),
+  ).toBeDisabled();
+  await editor.getByLabel("Math formula").fill("");
+  await editor.getByRole("button", { name: "occupancy", exact: true }).click();
+  await expect(editor.getByLabel("Math formula")).toHaveValue("occupancy");
+  await editor
+    .getByLabel("Math formula")
+    .fill("(exposedCells / area) / (1 + reuseEvents)");
+  await expect(editor.getByRole("status")).toHaveText("Valid formula");
+  await screenArtifact(page, testInfo, "custom-incentive-editor");
+  await editor
+    .getByRole("button", { name: "Add incentive", exact: true })
+    .click();
+  await expect(editor).not.toBeVisible();
+  await expect(
+    scoring.getByLabel("Add incentive", { exact: true }),
+  ).toBeFocused();
+  await scoring.getByLabel("Incentive 2 weight").fill("3");
+  await expect(
+    scoring.getByRole("list", { name: "Scoring incentives" }),
+  ).toContainText("75.0%");
+  await scoring
+    .getByLabel("Add incentive", { exact: true })
+    .selectOption("lightExposure");
+  await expect(
+    scoring.getByRole("list", { name: "Scoring incentives" }),
+  ).toContainText("Light exposure");
+  await scoring
+    .getByRole("button", { name: "Remove incentive 3: Light exposure" })
+    .click();
+  await scoring
+    .getByLabel("Add incentive", { exact: true })
+    .selectOption("avoidRepeatedReuse");
+  await expect(
+    scoring.getByRole("list", { name: "Scoring incentives" }),
+  ).toContainText("1 / (1 + reuseEvents)");
+  await scoring
+    .getByRole("button", { name: "Remove incentive 3: Avoid repeated reuse" })
+    .click();
+  // A nested modal must contain keyboard focus and Escape must preserve the run draft.
+  await scoring
+    .getByLabel("Add incentive", { exact: true })
+    .selectOption("new");
+  editor = page.getByRole("dialog", { name: "New incentive", exact: true });
+  await editor.getByRole("button", { name: "Cancel", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(editor.getByLabel("Close incentive editor")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(editor).not.toBeVisible();
+  await expect(dialog).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await scoring
+    .getByRole("button", { name: "Edit incentive 2: Occupied volume" })
+    .click();
+  const edit = page.getByRole("dialog", {
+    name: "Edit incentive",
+    exact: true,
+  });
+  await expect(
+    edit.getByRole("button", { name: "Save incentive" }),
+  ).toBeInViewport();
+  const bounds = (await edit.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  await screenArtifact(page, testInfo, "mobile-incentive-editor");
+  await edit.getByRole("button", { name: "Save incentive" }).click();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const created = page.waitForResponse(
+    (r) => r.url().endsWith("/api/runs") && r.request().method() === "POST",
+  );
+  await dialog
+    .getByRole("button", { name: "Create paused", exact: true })
+    .click();
+  const response = await created;
+  expect(response.status()).toBe(201);
+  const run = (await response.json()) as RunDetail;
+  createdIds.add(run.summary.id);
+  expect(run.config.incentives).toEqual([
+    presetIncentive("longevity"),
+    {
+      name: "Occupied volume",
+      expression: "(exposedCells / area) / (1 + reuseEvents)",
+      weight: 3,
+    },
+  ]);
+  const evaluated = await step(page, request, run.summary.id);
+  const expected = (1 / 7 + 3 / 81) / 4;
+  expect(evaluated.snapshot!.champion.fitness).toBeCloseTo(expected, 14);
+  const saved = await checkpoint(request, run.summary.id);
+  expect(saved.config.incentives).toEqual(run.config.incentives);
+  expect(saved.state!.champion.fitness).toBeCloseTo(expected, 14);
 });

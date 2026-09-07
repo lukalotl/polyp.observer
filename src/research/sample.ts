@@ -50,43 +50,45 @@ export function sampleTrajectory(
   const empty = new Uint32Array(0);
   let voxels = 0,
     bytes = 0;
-  const { boundaryContacts, ...trajectory } = streamTrajectory(
-    genome,
-    config,
-    seed,
-    (time, halo, occupied, bounds) => {
-      if (time < range.start || time > range.end) return;
-      voxels += occupied;
-      const dense = occupied * 4 >= size * size;
-      bytes += dense ? size * size : occupied * 4;
-      if (
-        bytes > MAX_PREVIEW_LAYER_BYTES ||
-        (voxels > MAX_PREVIEW_VOXELS &&
-          size * size * (range.end - range.start + 1) > MAX_PREVIEW_LAYER_BYTES)
-      )
-        throw new RangeError(
-          "This volume exceeds 64 MiB of render data. Choose a shorter preview range to render every timestep. Training is unaffected.",
-        );
-      const layer = dense
-        ? new Uint8Array(size * size)
-        : occupied
-          ? new Uint32Array(occupied)
-          : empty;
-      let index = 0;
-      if (occupied)
-        for (let z = bounds.minZ; z <= bounds.maxZ; z++)
-          for (let x = bounds.minX; x <= bounds.maxX; x++) {
-            const state = halo[(z + 1) * (size + 2) + x + 1];
-            if (state) {
-              const cell = z * size + x;
-              if (dense) layer[cell] = state;
-              else layer[index++] = (cell << 4) | state;
-            }
+  const {
+    boundaryContacts,
+    exposedCells: _exposedCells,
+    reusedCells: _reusedCells,
+    reuseEvents: _reuseEvents,
+    cellDeaths: _cellDeaths,
+    ...trajectory
+  } = streamTrajectory(genome, config, seed, (time, halo, occupied, bounds) => {
+    if (time < range.start || time > range.end) return;
+    voxels += occupied;
+    const dense = occupied * 4 >= size * size;
+    bytes += dense ? size * size : occupied * 4;
+    if (
+      bytes > MAX_PREVIEW_LAYER_BYTES ||
+      (voxels > MAX_PREVIEW_VOXELS &&
+        size * size * (range.end - range.start + 1) > MAX_PREVIEW_LAYER_BYTES)
+    )
+      throw new RangeError(
+        "This volume exceeds 64 MiB of render data. Choose a shorter preview range to render every timestep. Training is unaffected.",
+      );
+    const layer = dense
+      ? new Uint8Array(size * size)
+      : occupied
+        ? new Uint32Array(occupied)
+        : empty;
+    let index = 0;
+    if (occupied)
+      for (let z = bounds.minZ; z <= bounds.maxZ; z++)
+        for (let x = bounds.minX; x <= bounds.maxX; x++) {
+          const state = halo[(z + 1) * (size + 2) + x + 1];
+          if (state) {
+            const cell = z * size + x;
+            if (dense) layer[cell] = state;
+            else layer[index++] = (cell << 4) | state;
           }
-      layers.push(layer);
-      layerTimes.push(time);
-    },
-  );
+        }
+    layers.push(layer);
+    layerTimes.push(time);
+  });
   return {
     simulation: {
       ...trajectory,

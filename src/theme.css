@@ -382,3 +382,144 @@ input[type="range"]::-moz-range-thumb {
     transition: none;
   }
 }
+
+.scoring-config {
+  grid-column: 1 / -1;
+}
+.incentive-picker {
+  max-width: 520px;
+}
+.incentive-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+}
+.incentive-list > li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--field);
+}
+.incentive-details {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.incentive-details strong {
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.incentive-details code {
+  color: var(--blue);
+  font: 10px/1.5 var(--mono);
+  overflow-wrap: anywhere;
+}
+.incentive-details small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.incentive-weight {
+  display: grid;
+  gap: 4px;
+  flex: 0 0 72px;
+  font: 9px var(--mono);
+  color: var(--muted);
+}
+.incentive-weight input {
+  width: 72px;
+}
+.incentive-weight output {
+  color: var(--sage);
+}
+.incentive-actions {
+  display: flex;
+  gap: 5px;
+}
+.incentive-actions button {
+  width: 26px;
+  height: 26px;
+}
+.incentive-dialog {
+  width: min(720px, calc(100% - 24px));
+}
+.incentive-section-label {
+  font: 11px var(--mono);
+  color: var(--gold);
+  margin: 0;
+}
+.measurement-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  max-height: 230px;
+  overflow: auto;
+  margin: 10px 0 18px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--field);
+}
+.measurement-list > div {
+  min-width: 0;
+}
+.measurement-list button {
+  color: var(--blue);
+  font: 10px var(--mono);
+  padding: 3px 0;
+  text-align: left;
+}
+.measurement-list dd {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 2px 0 0;
+}
+.incentive-formula-label {
+  display: block;
+  color: var(--muted);
+  margin: 14px 0 7px;
+  font-size: 11px;
+}
+#incentive-formula {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  max-height: 200px;
+  padding: 10px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--blue);
+  font: 12px/1.6 var(--mono);
+}
+@media (max-width: 600px) {
+  .incentive-list > li {
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .incentive-details {
+    flex-basis: 100%;
+  }
+  .incentive-weight {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+  }
+  .incentive-actions {
+    margin-left: auto;
+  }
+  .measurement-list {
+    grid-template-columns: 1fr;
+    max-height: 170px;
+  }
+}

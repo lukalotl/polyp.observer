@@ -74,6 +74,91 @@ fitness uses minimum. Fixtures count separately even if their trajectories match
   safe-integer seeds are normalized by `>>> 0`, just like the golden simulator.
   Distinct Islands seeds still can produce similar/equal placements; this is not
   a guarantee of independent biological evidence.
+### Composable incentives
+
+The new-run UI uses an editable incentive list instead of an Objective selector.
+Each entry persists `{ name, expression, weight }` in optional `config.incentives`.
+A present list replaces legacy `objective` / `weights` scoring. Old checkpoints
+without the list retain exactly their existing scientific semantics; opening a
+new variant converts its old objective into equivalent incentive formulas. The
+legacy fields remain in JSON for compatibility and do not affect scoring when
+`incentives` is present.
+
+For each fixture, the final score is
+`sum(weight * clamp(expression, 0, 1)) / sum(weight)`, clamped to [0,1] for rounding.
+Weights are finite, nonnegative, at most 10,000; at least one must be positive.
+Zero-weight incentives are skipped. There may be 1–16 incentives. Each formula
+should normalize raw counts explicitly; e.g. `totalCells / (area * steps)`.
+Negative results clamp to zero and results above one clamp to one *before* the
+weighted average. A non-finite intermediate/result (division by zero, overflow,
+invalid logarithm/square root) gives **only that incentive** zero on that fixture.
+
+The variable catalog is shared by the evaluator and modal in `expressions.ts`:
+normalized diversity, activity, density, variation, persistence and occupancy;
+raw exposedCells, lifetime, initial/final/peak/mean population, population variance and total
+occupied cell-timesteps; extinction and spatial/cutoff-contact indicators; and
+size, area, steps and state count. All population measurements include the seed
+and empty timesteps through the cutoff. Indicators are numeric 0 or 1.
+
+`exposedCells` counts distinct X/Z positions occupied at least once through the
+full scientific cutoff, including the starting configuration. Viewed down the
+time axis, each column's last live cell claims the single point of exposure.
+Stacked cells, state changes and reoccupation never add extra points. Empty
+trailing timesteps do not erase claims. It is the population of a Life-style
+history-trail projection, not the final population, maximum population, bounding
+rectangle or total cell-timesteps. The Light exposure preset divides it by area.
+A one-bit-per-position bitmap computes the exact union in the streaming loop;
+no history volume or raycast is needed. It adds `4 * ceil(area / 32)` bytes to the
+exposure tracking. A second equal-sized bitmap tracks distinct reused positions;
+total history-tracking storage is `8 * ceil(area / 32)` bytes, independent of
+the timestep count. Preview cropping does not
+change scoring, and legacy saved metrics/configurations are unchanged.
+
+`reusedCells` counts distinct X/Z positions that become occupied again after
+having been occupied and then empty. `reuseEvents` counts every such return, so
+repeated death/rebirth cycles at the same position add more events, but only one
+reused position. An empty gap must span at least one recorded timestep; changing
+between two live states is neither a death nor a reuse. A position's first
+occupation (including the seed) is never reuse. `cellDeaths` counts every observed
+live-to-empty transition, including the first death, even without a later return.
+No death after the simulation cutoff is inferred. Each fixture owns independent
+history; empty trailing timesteps don't repeat death events.
+
+The Avoid cell reuse preset uses `1 - reusedCells / max(1, exposedCells)` to
+penalize each reused position once. Avoid repeated reuse uses
+`1 / (1 + reuseEvents)`, penalizing every return. Avoid cell deaths uses
+`1 / (1 + cellDeaths)`, penalizing deaths even without a subsequent return.
+These are editable positive rewards for fewer events (incentives maximize their
+result). Alone they can favor trivial or empty trajectories; combine them with
+light exposure or growth, or incorporate the penalty directly, e.g.
+`(exposedCells / area) / (1 + reuseEvents)`.
+
+Expressions use a bounded parser/interpreter, never JavaScript eval/Function.
+Only catalog variables, numeric literals, pi/e, parentheses, arithmetic
+`+ - * / % ^ **`, numeric comparisons `< <= > >= == !=`, and allowlisted math
+functions are accepted. Powers associate right and bind tighter than unary minus.
+Functions: abs, sqrt, log, exp, floor, ceil, round, min/max (2–8 arguments),
+pow(x,y), clamp(x) / clamp(x,low,high), and lazy if(condition,yes,no).
+No accessors, property lookup, assignment, strings, globals or JavaScript calls.
+Names are 1–80 characters; formulas 1–512 characters, at most 128 AST nodes and
+24 parser nesting levels. A bounded 256-entry compiled-expression cache avoids
+parsing each fixture. Server, inline evaluator and native workers share validation.
+
+The dropdown starts with **New incentive**, which opens a nested modal with
+click-to-insert variables at the top, syntax validation, naming and formula editing.
+Presets expose editable formulas; the list shows each weight's percentage share.
+Finite presets require extinction only for their own contribution. Adding a
+standalone `1 - spatialContact` incentive is a soft reward. Multiplying an
+incentive by it zeros that incentive on contact.
+
+**Hard constraints** remain in the scoring section: boundary switches override
+all incentive contributions and zero a contacting fixture. Mean or worst fixture
+then aggregates the resulting scores; held-out fixtures use the same process
+separately. This preserves a convenient distinction between soft incentives and
+hard eligibility without imposing all-fixture failure under mean aggregation.
+
+### Legacy objectives (and corresponding presets)
+
 - `complexity = persistence × weightedMean(diversity, motion, density, variation)`.
   Occupied-state entropy is normalized by `log(stateCount - 1)`. Binary rules
   have only one occupied state, so this component is defined as zero. Its weight
@@ -90,7 +175,8 @@ fitness uses minimum. Fixtures count separately even if their trajectories match
   fixture scores zero even with horizon policy off; mean still credits other
   successful fixtures. Held-out fixtures are assessed independently. Fewer cells favors immediate
   extinction; more cells rewards larger finite spacetime volumes.
-- Changing complexity weights does not affect the other objectives.
+- Changing legacy complexity weights does not affect the other legacy objectives.
+  With composable incentives present, legacy weights are ignored.
 - `boundaryPolicy` defaults to `{ spatial: true, horizon: true }` in new runs.
   Spatial contact means any occupied cell at x=0, x=size−1, z=0 or z=size−1,
   including corners. Contact at any timestep disqualifies that fixture even if
@@ -187,14 +273,15 @@ cannot claim as committed search work.
 ## Validation and bounds
 
 Odd size 9..1025; steps 8..65536; size²×steps ≤1,073,741,824; population 8..512;
-new-run defaults are size 129, 2048 timesteps and the finite-longevity objective. The work bound is separate from
+new-run defaults are size 129, 2048 timesteps and the Finite longevity incentive. The work bound is separate from
 the streaming memory bound: both per-axis maxima cannot be used together.
 
 Elites 0..population−1; tournament 2..min(32,population); mutation/crossover rates
 0..1; immigrant rate 0..0.5 with the floored count fitting non-elite slots; 1..8
 training and 0..8 validation seeds; workers 1..6; cache 0..8192; maxGenerations
 0..1e9; checkpoint seconds 2..300; snapshotEvery 1..10000; retainedSnapshots 2..128;
-nonblank name 1..80 characters; finite weights 0..10 with positive sum.
+nonblank name 1..80 characters; finite legacy weights 0..10 with positive sum.
+Composable incentive weights use 0..10,000 with at least one positive weight.
 
 Checkpoint validation checks model/schema, bounded array lengths before copying,
 RNG/IDs/generations, unique individual IDs, ancestry chronology, mutation/crossover

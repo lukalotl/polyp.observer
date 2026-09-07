@@ -4,6 +4,14 @@ import type { RunConfig, BoundaryContacts } from "./types";
 export type Trajectory = Omit<Simulation, "layers" | "population"> & {
   population: Float64Array;
   boundaryContacts: BoundaryContacts;
+  /** One exposed cell per X/Z column ever occupied, even after extinction. */
+  exposedCells: number;
+  /** Distinct positions repopulated after at least one live-to-empty transition. */
+  reusedCells: number;
+  /** All returns to a previously occupied position after an empty timestep. */
+  reuseEvents: number;
+  /** All observed live-to-empty transitions; no inferred death after the cutoff. */
+  cellDeaths: number;
 };
 
 /** Mulberry32, identical to the frozen simulation's island-fixture RNG. */
@@ -35,6 +43,28 @@ export function streamTrajectory(
   const { size, steps, stateCount } = config;
   const area = size * size,
     stride = size + 2;
+  // The topmost live cell in each time-column owns its exposure. Counting the
+  // union gives the same total without retaining history or performing raycasts.
+  const exposed = new Uint32Array(Math.ceil(area / 32));
+  const reused = new Uint32Array(exposed.length);
+  let exposedCells = 0,
+    reusedCells = 0,
+    reuseEvents = 0,
+    cellDeaths = 0;
+  const claimExposure = (cell: number, birth = false) => {
+    const word = cell >>> 5,
+      bit = 1 << (cell & 31);
+    if (!(exposed[word] & bit)) {
+      exposed[word] |= bit;
+      exposedCells++;
+    } else if (birth) {
+      reuseEvents++;
+      if (!(reused[word] & bit)) {
+        reused[word] |= bit;
+        reusedCells++;
+      }
+    }
+  };
   let current = new Uint8Array(stride * stride),
     next = new Uint8Array(stride * stride);
   let minX = size,
@@ -97,6 +127,7 @@ export function streamTrajectory(
       if (state) {
         live++;
         counts[state]++;
+        claimExposure(z * size + x);
       }
     }
   for (let t = 0; t < steps; t++) {
@@ -147,9 +178,11 @@ export function streamTrajectory(
         const state = genome[current[index] * 9 + neighbors];
         next[index] = state;
         if (state !== current[index]) changed++;
+        if (current[index] && !state) cellDeaths++;
         if (state) {
           live++;
           counts[state]++;
+          if (!current[index]) claimExposure(z * size + x, true);
           minX = Math.min(minX, x);
           maxX = Math.max(maxX, x);
           minZ = Math.min(minZ, z);
@@ -176,5 +209,9 @@ export function streamTrajectory(
     lifetime,
     extinct: population[steps - 1] === 0,
     boundaryContacts,
+    exposedCells,
+    reusedCells,
+    reuseEvents,
+    cellDeaths,
   };
 }
