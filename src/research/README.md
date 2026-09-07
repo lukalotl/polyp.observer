@@ -204,9 +204,20 @@ the horizon. All but lifetime lie in [0,1].
 
 Generation 0 initializes a real population. New runs default to `random`;
 existing configs retain their explicit initialization mode. `mutants` inserts
-the supplied genome as founder `i1`, then per-locus mutants (or honest clones at zero mutations) of
-that founder. Initialization mode `random` fills **all** slots with independent
-uniform random genomes, ignoring the seed genome as a founder.
+the supplied genome as founder `i1`, then per-locus mutants (or honest clones at
+zero mutations) of that founder. Initialization mode `random` fills **all** slots
+with independent random genomes, ignoring the seed genome as a founder.
+
+New drafts use `randomRuleBias: "sparse"`: each unlocked output has an 80% chance
+of zero. Empty-state births with one neighbor are 98% zero; births with two or
+three neighbors are 95% zero. These low-neighbor births allow outward fronts to
+advance into empty space at the Moore neighborhood's maximum speed, so making
+them rare reduces explosive growth without forbidding it. Remaining probability
+is uniform among nonzero states, independent of alphabet size. Gene 0 stays
+locked; each unlocked gene consumes exactly one RNG draw. The same sampler
+generates immigrants. Mutation and crossover retain their existing semantics.
+An omitted bias or explicit `"uniform"` uses the original uniform sampler,
+preserving the exact RNG, population and checkpoint continuation of older runs.
 
 Every advance breeds from the **entire retained prior population**. The best
 `eliteCount` survive byte-for-byte with original ID, ancestry and birth generation.

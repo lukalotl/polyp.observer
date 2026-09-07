@@ -31,6 +31,7 @@ import type {
 const base = (patch: Partial<RunConfig> = {}): RunConfig => ({
   ...DEFAULT_RUN_CONFIG,
   initialization: "mutants",
+  randomRuleBias: "uniform",
   name: "Scientific fixture",
   size: 9,
   steps: 8,

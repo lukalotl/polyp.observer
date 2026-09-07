@@ -24,6 +24,7 @@ export const DEFAULT_RUN_CONFIG: RunConfig = {
   weights: { diversity: 0.34, activity: 0.3, density: 0.24, variation: 0.12 },
   seedGenome: PRESETS[0].genome.slice(),
   initialization: "random",
+  randomRuleBias: "sparse",
   populationSize: 64,
   eliteCount: 4,
   selection: "tournament",
@@ -138,9 +139,10 @@ export function validateRunConfig(value: unknown): RunConfig {
     v,
     [
       ...Object.keys(DEFAULT_RUN_CONFIG).filter(
-        (key) => key !== "fixtureFailures",
+        (key) => key !== "fixtureFailures" && key !== "randomRuleBias",
       ),
       ...(Object.hasOwn(v, "fixtureFailures") ? ["fixtureFailures"] : []),
+      ...(Object.hasOwn(v, "randomRuleBias") ? ["randomRuleBias"] : []),
       ...(Object.hasOwn(v, "soupSize") ? ["soupSize"] : []),
       ...(Object.hasOwn(v, "incentives") ? ["incentives"] : []),
     ],
@@ -246,6 +248,15 @@ export function validateRunConfig(value: unknown): RunConfig {
       ["mutants", "random"],
       "initialization",
     ),
+    ...(Object.hasOwn(v, "randomRuleBias")
+      ? {
+          randomRuleBias: choice(
+            v.randomRuleBias,
+            ["sparse", "uniform"] as const,
+            "random rule bias",
+          ),
+        }
+      : {}),
     populationSize,
     eliteCount,
     selection: choice(v.selection, ["tournament", "rank"], "selection"),
@@ -307,6 +318,7 @@ export function migrateLegacyRunConfig(
     Object.keys(DEFAULT_RUN_CONFIG).filter(
       (key) =>
         (key !== "fixtureFailures" || Object.hasOwn(v, key)) &&
+        (key !== "randomRuleBias" || Object.hasOwn(v, key)) &&
         key !== "boundaryPolicy" &&
         (version !== LEGACY_MODEL_VERSION || key !== "stateCount"),
     ),

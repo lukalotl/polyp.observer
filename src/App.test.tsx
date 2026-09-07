@@ -97,6 +97,12 @@ describe("complete, immutable run configuration", () => {
     expect(
       screen.getByLabelText("Initialization", { exact: true }),
     ).toHaveValue("random");
+    expect(
+      screen.getByLabelText("Random rule sampling", { exact: true }),
+    ).toHaveValue("sparse");
+    expect(
+      screen.getByText(/Random rules and immigrants output empty \(0\) 80%/),
+    ).toBeVisible();
     const preset = screen.getByLabelText("Founder preset", { exact: true });
     const genome = screen.getByRole("button", { name: "Edit founder genome" });
     const outputs = screen.getByRole("button", { name: "Edit 45 outputs" });

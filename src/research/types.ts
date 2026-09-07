@@ -42,6 +42,8 @@ export interface RunConfig {
   weights: FitnessWeights;
   seedGenome: Genome;
   initialization: "mutants" | "random";
+  /** Omitted by older runs, which retain uniform random rules and RNG replay. */
+  randomRuleBias?: "sparse" | "uniform";
   populationSize: number;
   eliteCount: number;
   selection: "tournament" | "rank";

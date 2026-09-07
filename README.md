@@ -67,6 +67,11 @@ The public website uses Vercel plus a persistent VM backend. See
   Founder controls are inactive in Random rules; the pre-initialization render
   is labeled as an example, not a contender. Existing runs and parameter forks
   retain their configured initialization.
+  New drafts favor empty outputs (80%), with especially rare births at the
+  growing edge (98% empty with one neighbor, 95% with two or three). The
+  **Random rule sampling** control also applies to immigrants. Live outputs share
+  the remaining probability equally; mutation and crossover are unchanged.
+  Older runs retain uniform sampling and exact checkpoint continuation.
 - **New run**: parameter fields or complete JSON configuration. Population,
   elitism, tournament/rank selection, crossover type/probability, per-locus
   mutation, immigrants, initialization, search RNG, fixture seeds, scoring

@@ -150,6 +150,7 @@ describe("boundary qualification of complete trajectories", () => {
   );
   it("averages failures as zero while worst-fixture and legacy runs retain their strict behavior", async () => {
     const cfg = config({
+      initialization: "mutants",
       fixtureFailures: "aggregate",
       seed: "islands",
       seedGenome: split,

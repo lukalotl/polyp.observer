@@ -81,10 +81,25 @@ class Random {
     return Math.floor(this.next() * length);
   }
 }
-function randomGenome(random: Random, stateCount: number): Genome {
-  return Array.from({ length: 9 * stateCount }, (_, i) =>
-    i === 0 ? 0 : random.index(stateCount),
-  );
+function randomGenome(random: Random, config: RunConfig): Genome {
+  return Array.from({ length: 9 * config.stateCount }, (_, locus) => {
+    if (locus === 0) return 0;
+    // Preserve the original draw and mapping for existing saved searches.
+    if (config.randomRuleBias !== "sparse")
+      return random.index(config.stateCount);
+    // Empty cells on an advancing outer edge see at most three live neighbors.
+    // B1 is especially prone to maximum-speed radial growth. Keep these births
+    // possible, but rare; distribute the remaining probability across live states.
+    const emptyChance = locus === 1 ? 0.98 : locus <= 3 ? 0.95 : 0.8;
+    const draw = random.next();
+    return draw < emptyChance
+      ? 0
+      : 1 +
+          Math.floor(
+            ((draw - emptyChance) / (1 - emptyChance)) *
+              (config.stateCount - 1),
+          );
+  });
 }
 function mutate(genome: Genome, rate: number, random: Random): number[] {
   const stateCount = genome.length / 9;
@@ -311,7 +326,7 @@ export async function initializePopulation(
   for (let i = 0; i < checked.populationSize; i++) {
     const genome =
       checked.initialization === "random"
-        ? randomGenome(random, checked.stateCount)
+        ? randomGenome(random, checked)
         : checked.seedGenome.slice();
     const mutatedLoci =
       checked.initialization === "mutants" && i > 0
@@ -432,9 +447,7 @@ export async function advanceGeneration(
     const isImmigrant = i >= children;
     const first = isImmigrant ? null : select();
     const parents = first ? [parentRef(first)] : [];
-    const genome = first
-      ? first.genome.slice()
-      : randomGenome(random, config.stateCount);
+    const genome = first ? first.genome.slice() : randomGenome(random, config);
     const crossoverMask = Array(genome.length).fill(0);
     let crossed = false;
     if (

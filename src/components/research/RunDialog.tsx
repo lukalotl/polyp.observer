@@ -514,6 +514,31 @@ export default function RunDialog({
                     ? "Every contender starts with an independently randomized rule. The founder rule is not used for initialization."
                     : "One contender keeps the founder rule; the others start as mutations of it. Mutation probability controls their initial variation."}
                 </p>
+                <label className="config-field">
+                  <span>Random rule sampling</span>
+                  <select
+                    aria-label="Random rule sampling"
+                    value={draft.randomRuleBias ?? "uniform"}
+                    onChange={(event) =>
+                      update(
+                        "randomRuleBias",
+                        event.target.value as RunConfig["randomRuleBias"],
+                      )
+                    }
+                  >
+                    <option value="sparse">
+                      Favor empty · rare edge births
+                    </option>
+                    <option value="uniform">Uniform outputs</option>
+                  </select>
+                </label>
+                <p className="config-note">
+                  {draft.randomRuleBias === "sparse"
+                    ? "Random rules and immigrants output empty (0) 80% of the time. For empty cells with 1 neighbor this rises to 98%, or 95% with 2–3 neighbors, making fast-spreading fronts rarer. Remaining probability is shared equally by live states."
+                    : "Random rules and immigrants give every output state equal probability. Existing runs retain this sampler unless changed in a new draft."}{" "}
+                  This controls random rule generation; mutation and crossover
+                  keep their usual behavior.
+                </p>
               </fieldset>
               <fieldset>
                 <legend>Execution & retention</legend>

@@ -28,6 +28,7 @@ export const SELECTED_KEY = "polyp.research.selected";
 export const smallConfig = (overrides: Partial<RunConfig> = {}): RunConfig => ({
   ...structuredClone(DEFAULT_RUN_CONFIG),
   initialization: "mutants",
+  randomRuleBias: "uniform",
   name: "Fixture research",
   size: 9,
   steps: 8,

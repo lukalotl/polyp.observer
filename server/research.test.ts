@@ -47,6 +47,7 @@ const limits = { maxEvaluationWorkers: 2, maxRuns: 2, cpuBudget: 3 };
 const tiny = (patch: Partial<RunConfig> = {}): RunConfig => ({
   ...structuredClone(DEFAULT_RUN_CONFIG),
   initialization: "mutants",
+  randomRuleBias: "uniform",
   name: "Fixture native research",
   size: 9,
   steps: 8,

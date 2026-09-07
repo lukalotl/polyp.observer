@@ -18,6 +18,7 @@ import type {
 const config = (updates: Partial<RunConfig> = {}): RunConfig => ({
   ...structuredClone(DEFAULT_RUN_CONFIG),
   initialization: "mutants",
+  randomRuleBias: "uniform",
   size: 9,
   steps: 8,
   populationSize: 16,

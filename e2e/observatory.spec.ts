@@ -143,6 +143,7 @@ async function createRun(
   const config: RunConfig = {
     ...initial,
     initialization: "mutants",
+    randomRuleBias: "uniform",
     name: `e2e-${Date.now()}-${testInfo.workerIndex}`,
     size: 25,
     steps: 32,
@@ -261,6 +262,18 @@ test("new runs default to random contenders while founder mode stays opt-in", as
     dialog.getByLabel("Initialization", { exact: true }),
   ).toHaveValue("random");
   await expect(
+    dialog.getByLabel("Random rule sampling", { exact: true }),
+  ).toHaveValue("sparse");
+  await dialog
+    .getByLabel("Random rule sampling", { exact: true })
+    .selectOption("uniform");
+  await expect(
+    dialog.getByText(/give every output state equal probability/),
+  ).toBeVisible();
+  await dialog
+    .getByLabel("Random rule sampling", { exact: true })
+    .selectOption("sparse");
+  await expect(
     dialog.getByLabel("Founder preset", { exact: true }),
   ).toBeDisabled();
   await expect(
@@ -292,6 +305,7 @@ test("new runs default to random contenders while founder mode stays opt-in", as
   const run = (await response.json()) as RunDetail;
   createdIds.add(run.summary.id);
   expect(run.config.initialization).toBe("random");
+  expect(run.config.randomRuleBias).toBe("sparse");
   await expect(
     page.getByText("Example rule · population not initialized", {
       exact: true,
