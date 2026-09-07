@@ -251,6 +251,7 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
         "trainingScores",
         "validationScores",
         "metrics",
+        "fixturePasses",
       ],
       [
         "id",

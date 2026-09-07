@@ -28,11 +28,15 @@ export interface RunConfig {
   size: number;
   steps: number;
   seed: SeedMode;
+  /** Required for soup; omitted in older configurations. */
+  soupSize?: number;
   trainingSeeds: number[];
   validationSeeds: number[];
   objective: Objective;
   boundaryPolicy: BoundaryPolicy;
   aggregation: "mean" | "minimum";
+  /** Older runs omit this and retain all-fixture disqualification. */
+  fixtureFailures?: "aggregate" | "all";
   weights: FitnessWeights;
   seedGenome: Genome;
   initialization: "mutants" | "random";
@@ -66,6 +70,7 @@ export interface FitnessMetrics {
   extinctFraction: number;
 }
 export interface Evaluation {
+  fixturePasses?: { training: boolean[]; validation: boolean[] };
   disqualified: boolean;
   validationDisqualified: boolean;
   fitness: number;

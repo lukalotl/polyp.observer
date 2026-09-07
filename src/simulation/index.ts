@@ -7,8 +7,13 @@
  */
 import { tournamentSelect, uniformCrossover } from "./genetics";
 
-export type SeedMode = "point" | "cross" | "islands";
-export type Objective = "complexity" | "longevity" | "growth";
+export type SeedMode = "point" | "cross" | "islands" | "soup";
+export type Objective =
+  | "complexity"
+  | "longevity"
+  | "growth"
+  | "finiteSparse"
+  | "finiteDense";
 export type Genome = number[];
 
 export interface Preset {
@@ -25,6 +30,8 @@ export interface Config {
   steps: number;
   seed: SeedMode;
   randomSeed: number;
+  /** Centered random square; required for soup. */
+  soupSize?: number;
 }
 
 export interface Simulation {
@@ -97,8 +104,15 @@ function validateConfig(config: Config): void {
       "A simulation may record at most 16 million cell sites.",
     );
   }
-  if (!["point", "cross", "islands"].includes(config.seed))
+  if (!["point", "cross", "islands", "soup"].includes(config.seed))
     throw new RangeError("Unknown seed form.");
+  if (
+    config.seed === "soup" &&
+    (!Number.isSafeInteger(config.soupSize) ||
+      config.soupSize! < 1 ||
+      config.soupSize! > config.size)
+  )
+    throw new RangeError("Soup size must be an integer within the grid.");
   if (!Number.isFinite(config.randomSeed))
     throw new RangeError("Random seed must be finite.");
 }
@@ -110,7 +124,7 @@ function seedLayer(config: Config): Uint8Array {
   const place = (x: number, z: number, state = 1) => {
     if (x >= 0 && x < size && z >= 0 && z < size) layer[z * size + x] = state;
   };
-  place(center, center);
+  if (seed !== "soup") place(center, center);
   if (seed === "cross") {
     for (let distance = 1; distance <= 2; distance++) {
       place(center + distance, center);
@@ -118,6 +132,13 @@ function seedLayer(config: Config): Uint8Array {
       place(center, center + distance);
       place(center, center - distance);
     }
+  } else if (seed === "soup") {
+    const random = randomSource(config.randomSeed);
+    const n = config.soupSize!;
+    const start = Math.floor((size - n) / 2);
+    for (let z = start; z < start + n; z++)
+      for (let x = start; x < start + n; x++)
+        place(x, z, Math.floor(random() * STATE_COUNT));
   } else if (seed === "islands") {
     const random = randomSource(config.randomSeed);
     const radius = Math.max(1, Math.floor(size * 0.16));
@@ -233,6 +254,10 @@ export function fitness(simulation: Simulation, objective: Objective): number {
     return simulation.extinct
       ? clamp(lifetime / Math.max(1, layers.length - 1))
       : 0;
+  }
+  if (objective === "finiteSparse" || objective === "finiteDense") {
+    if (!simulation.extinct || lifetime === 0) return 0;
+    return clamp(objective === "finiteSparse" ? 1 - occupancy : occupancy);
   }
   if (objective === "growth") {
     const gain = clamp(

@@ -151,25 +151,26 @@ export default function PopulationView({
                 <td
                   title={
                     individual.disqualified
-                      ? "Disqualified: boundary contact in a training fixture. Fitness 0."
+                      ? individual.fixturePasses
+                        ? `${individual.fixturePasses.training.filter(Boolean).length}/${individual.fixturePasses.training.length} training fixtures passed. Failures contribute zero.`
+                        : "A training fixture was disqualified."
                       : String(individual.fitness)
                   }
                 >
-                  {individual.disqualified
-                    ? "0 · DQ"
-                    : formatFitness(individual.fitness)}
+                  {formatFitness(individual.fitness)}
+                  {individual.disqualified ? " · F" : ""}
                 </td>
                 <td
                   title={
                     individual.validationDisqualified
-                      ? "Disqualified: boundary contact in a held-out fixture. Fitness 0."
+                      ? "A held-out fixture was disqualified; failures contribute zero."
                       : individual.validationFitness === null
                         ? "Not evaluated"
                         : String(individual.validationFitness)
                   }
                 >
                   {individual.validationDisqualified
-                    ? "0 · DQ"
+                    ? `${formatFitness(individual.validationFitness ?? 0)} · F`
                     : formatFitness(individual.validationFitness)}
                 </td>
                 <td>{individual.birthGeneration}</td>

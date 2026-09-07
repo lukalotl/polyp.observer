@@ -11,12 +11,14 @@ function evaluationKey(config: RunConfig) {
     config.size,
     config.steps,
     config.seed,
+    config.seed === "soup" ? config.soupSize : null,
     config.trainingSeeds,
     config.validationSeeds,
     config.objective,
     config.boundaryPolicy?.spatial ?? false,
     config.boundaryPolicy?.horizon ?? false,
     config.aggregation,
+    config.fixtureFailures ?? "all",
     config.objective === "complexity" ? config.weights : null,
   ]);
 }

@@ -123,6 +123,7 @@ export function previewFor(
     size: detail.config.size,
     steps: detail.config.steps,
     seed: detail.config.seed,
+    soupSize: detail.config.soupSize,
     randomSeed: seed,
   });
   return {

@@ -24,6 +24,7 @@ import {
 import Volume from "./components/Volume";
 import { layoutTimeLayers } from "./rendering/volumeData";
 import RunDialog from "./components/research/RunDialog";
+import RunContextMenu from "./components/research/RunContextMenu";
 import { PaneDivider, usePaneSizes } from "./components/research/PaneDivider";
 import PopulationView from "./components/research/PopulationView";
 import GeneticsView from "./components/research/GeneticsView";
@@ -71,6 +72,17 @@ export default function App() {
   const [newConfig, setNewConfig] = useState<RunConfig | null>(null);
   const [configurationTitle, setConfigurationTitle] = useState("New run");
   const [showArchived, setShowArchived] = useState(false);
+  const [runMenu, setRunMenu] = useState<{
+    id: string;
+    x: number;
+    y: number;
+    trigger: HTMLElement;
+  } | null>(null);
+  const menuRun = lab.runs.find((value) => value.id === runMenu?.id);
+  function closeRunMenu() {
+    runMenu?.trigger.focus();
+    setRunMenu(null);
+  }
   const [historical, setHistorical] = useState<GenerationSnapshot | null>(null);
   const [requestedGeneration, setRequestedGeneration] = useState<number | null>(
     null,
@@ -95,7 +107,14 @@ export default function App() {
   const [rangeEnd, setRangeEnd] = useState("");
   const [fixtureSeed, setFixtureSeed] = useState<number | null>(null);
   const [visibleLayers, setVisibleLayers] = useState(1);
-  const [playing, setPlaying] = useState(false);
+  const [playing, setPlaying] = useState(true);
+  const [loopAnimation, setLoopAnimation] = useState(true);
+  const [playbackSpeed, setPlaybackSpeed] = useState(4);
+  const playingIntent = useRef(true);
+  function stopPlayback() {
+    playingIntent.current = false;
+    setPlaying(false);
+  }
   const [displayMode, setDisplayMode] = useState<"volume" | "slice">("volume");
   const [view, setView] = useState<"iso" | "top" | "front">("iso");
   const [material, setMaterial] = useState<"voxels" | "points">("voxels");
@@ -148,6 +167,25 @@ export default function App() {
     range: previewRange,
     ready: Boolean(frame) && !previewBusy && lab.connection !== "reconnecting",
   });
+  const neighbors = galleryNeighbors(galleryVisible, candidateIndex)
+    .filter((index) => candidates[index])
+    .map((index) => neighborPreview(candidates[index].individual.genome));
+  const carouselReady =
+    Boolean(decoded) &&
+    !previewBusy &&
+    neighbors.every((neighbor) => neighbor?.simulation || neighbor?.error);
+  const playbackLayers = Math.max(
+    decoded?.playbackLayers ?? 1,
+    ...neighbors.map((neighbor) => neighbor?.simulation?.playbackLayers ?? 1),
+  );
+  const fixturesKey = JSON.stringify([
+    detail?.config.trainingSeeds,
+    detail?.config.validationSeeds,
+  ]);
+  const fixtureList = useMemo(() => {
+    const [training, validation] = JSON.parse(fixturesKey);
+    return [...(training ?? []), ...(validation ?? [])] as number[];
+  }, [fixturesKey]);
   const emptySimulation = useMemo(
     () => ({ size: detail?.config.size ?? 1, layers: [] }),
     [detail?.config.size],
@@ -196,7 +234,6 @@ export default function App() {
     setPreviewRange(undefined);
     setRangeStart("0");
     setRangeEnd("");
-    setPlaying(false);
   }, [lab.selectedId]);
 
   useEffect(() => {
@@ -208,7 +245,6 @@ export default function App() {
     const controller = new AbortController();
     setPreviewBusy(true);
     setPreviewError("");
-    setPlaying(false);
     void request<PreviewFrame>(
       `/api/runs/${encodeURIComponent(lab.selectedId)}/preview`,
       {
@@ -223,14 +259,17 @@ export default function App() {
     )
       .then((value) => {
         if (controller.signal.aborted) return;
-        decodePreview(value);
+        const preview = decodePreview(value);
         setFrame(value);
         setFrameContext(currentFrameContext);
-        setVisibleLayers(value.layerTimes.length);
-        setResetKey((key) => key + 1);
+        setVisibleLayers(playingIntent.current ? 1 : preview.playbackLayers);
+        // Preserve the camera across fixture loops of the same rule.
+        if (storedFrame?.genome.join(",") !== genomeKey)
+          setResetKey((key) => key + 1);
       })
       .catch((caught) => {
         if (!controller.signal.aborted) {
+          stopPlayback();
           setFrame(null);
           setPreviewError(
             caught instanceof Error ? caught.message : "Preview failed.",
@@ -289,18 +328,43 @@ export default function App() {
   }, [lab.selectedId, requestedGeneration]);
 
   useEffect(() => {
-    if (!playing || !decoded) return;
-    const timer = setInterval(
-      () =>
-        setVisibleLayers((value) => Math.min(decoded.layers.length, value + 1)),
-      100,
+    if (!playing || !carouselReady) return;
+    const complete = visibleLayers >= playbackLayers;
+    if (complete && !loopAnimation) {
+      stopPlayback();
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        if (!complete) {
+          setVisibleLayers(visibleLayers + 1);
+        } else {
+          const next =
+            fixtureList[
+              (fixtureList.indexOf(previewSeed) + 1) % fixtureList.length
+            ];
+          if (next !== previewSeed) setFixtureSeed(next);
+          setVisibleLayers(1);
+        }
+      },
+      complete ? 200 : 100 / playbackSpeed,
     );
-    return () => clearInterval(timer);
-  }, [playing, decoded]);
+    return () => clearTimeout(timer);
+  }, [
+    playing,
+    carouselReady,
+    playbackLayers,
+    visibleLayers,
+    loopAnimation,
+    playbackSpeed,
+    fixtureList,
+    previewSeed,
+  ]);
+
+  // Pin the selected record when playback starts, including default autoplay.
   useEffect(() => {
-    if (playing && decoded && visibleLayers >= decoded.layers.length)
-      setPlaying(false);
-  }, [playing, decoded, visibleLayers]);
+    if (playing && individual) setGalleryCursor(individual.id);
+  }, [playing, individual?.id]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -339,9 +403,10 @@ export default function App() {
     if (index === candidateIndex && previewError)
       setPreviewAttempt((value) => value + 1);
     setGalleryCursor(
-      index === candidates.length - 1 ? null : candidate.individual.id,
+      playing || index !== candidates.length - 1
+        ? candidate.individual.id
+        : null,
     );
-    setPlaying(false);
   }
 
   function openNew(base?: RunConfig, title = "New run") {
@@ -378,7 +443,6 @@ export default function App() {
     });
     setSource("selected");
     setGalleryCursor(null);
-    setPlaying(false);
   }
   function doAction(
     action: "start" | "pause" | "step" | "checkpoint" | "archive",
@@ -523,6 +587,19 @@ export default function App() {
         </button>
       </header>
 
+      {runMenu && menuRun && (
+        <RunContextMenu
+          run={menuRun}
+          x={runMenu.x}
+          y={runMenu.y}
+          busy={lab.busy}
+          onClose={closeRunMenu}
+          onAction={(action) => {
+            void lab.action(menuRun.id, action).catch(() => {});
+            closeRunMenu();
+          }}
+        />
+      )}
       <div className="research-body">
         {showRuns && !focus && (
           <aside
@@ -574,6 +651,33 @@ export default function App() {
                     aria-label={`Select run ${value.name}`}
                     aria-pressed={lab.selectedId === value.id}
                     onClick={() => lab.select(value.id)}
+                    aria-haspopup="menu"
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setRunMenu({
+                        id: value.id,
+                        x: event.clientX || rect.left + 16,
+                        y: event.clientY || rect.top + rect.height / 2,
+                        trigger: event.currentTarget,
+                      });
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === "ContextMenu" ||
+                        (event.shiftKey && event.key === "F10")
+                      ) {
+                        event.preventDefault();
+                        const rect =
+                          event.currentTarget.getBoundingClientRect();
+                        setRunMenu({
+                          id: value.id,
+                          x: rect.left + 16,
+                          y: rect.top + rect.height / 2,
+                          trigger: event.currentTarget,
+                        });
+                      }
+                    }}
                   >
                     <div className="run-row-title">
                       <i className={`status-dot ${value.status}`} />
@@ -784,7 +888,6 @@ export default function App() {
                     onChange={(event) => {
                       setSource(event.target.value as typeof source);
                       setGalleryCursor(null);
-                      setPlaying(false);
                     }}
                   >
                     <option value="best">Best ever</option>
@@ -795,7 +898,7 @@ export default function App() {
                   </select>
                   <span className="candidate-identity" title={individual?.id}>
                     {individual
-                      ? `${individual.id} · ${individual.disqualified ? "0 · Disqualified" : fitnessNumber(individual.fitness)}`
+                      ? `${individual.id} · ${fitnessNumber(individual.fitness)}${individual.fixturePasses ? ` · ${individual.fixturePasses.training.filter(Boolean).length}/${individual.fixturePasses.training.length} passed` : individual.disqualified ? " · Fixture failure" : ""}`
                       : "Founder · not evaluated"}
                   </span>
                   <span className="toolbar-space" />
@@ -831,6 +934,68 @@ export default function App() {
                   </button>
                 </div>
                 <div className="champion-canvas">
+                  <div
+                    className="fixture-inspector"
+                    aria-label="Starting configuration"
+                  >
+                    <div className="fixture-heading">
+                      <span>
+                        {detail.config.seed === "soup"
+                          ? `Soup ${detail.config.soupSize} × ${detail.config.soupSize}`
+                          : "Fixture"}
+                      </span>
+                      <select
+                        aria-label="Preview fixture"
+                        value={String(previewSeed)}
+                        onChange={(event) => {
+                          stopPlayback();
+                          setFixtureSeed(Number(event.target.value));
+                        }}
+                      >
+                        {detail.config.trainingSeeds.map((seed, index) => (
+                          <option key={`t${seed}`} value={seed}>
+                            Train {index + 1} · {seed}
+                          </option>
+                        ))}
+                        {detail.config.validationSeeds.map((seed, index) => (
+                          <option key={`v${seed}`} value={seed}>
+                            Held-out {index + 1} · {seed}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div
+                      className="fixture-boundaries"
+                      aria-label="Fixture boundary contacts"
+                      title={
+                        frame?.boundaryContacts
+                          ? boundaryDescription(
+                              frame.boundaryContacts,
+                              frame.totalSteps - 1,
+                            )
+                          : undefined
+                      }
+                    >
+                      {!frame || previewBusy
+                        ? previewError
+                          ? "Preview unavailable"
+                          : "Loading fixture…"
+                        : frame.boundaryContacts
+                          ? `${
+                              isDisqualified(
+                                frame.boundaryContacts,
+                                detail.config.boundaryPolicy,
+                              ) ||
+                              ((detail.config.objective === "finiteSparse" ||
+                                detail.config.objective === "finiteDense") &&
+                                (!frame.simulation.extinct ||
+                                  frame.simulation.lifetime === 0))
+                                ? "Disqualified · "
+                                : ""
+                            }${boundaryDescription(frame.boundaryContacts, frame.totalSteps - 1)}`
+                          : "Boundary data unavailable"}
+                    </div>
+                  </div>
                   {genome && (
                     <Volume
                       simulation={renderSimulation ?? emptySimulation}
@@ -886,6 +1051,11 @@ export default function App() {
                       }
                       visibleLayers={
                         displayMode === "slice" ? 1 : visibleLayers
+                      }
+                      cutoffTime={
+                        displayMode === "volume"
+                          ? detail.config.steps - 1
+                          : undefined
                       }
                       palette={palette}
                       mode={material}
@@ -1135,38 +1305,25 @@ export default function App() {
                     </button>
                   </nav>
                 )}
-                {frame?.boundaryContacts && (
-                  <div
-                    className="fixture-boundaries"
-                    aria-label="Fixture boundary contacts"
-                  >
-                    {detail.config.boundaryPolicy &&
-                    isDisqualified(
-                      frame.boundaryContacts,
-                      detail.config.boundaryPolicy,
-                    )
-                      ? "Fixture disqualified · "
-                      : "Fixture · "}
-                    {boundaryDescription(
-                      frame.boundaryContacts,
-                      frame.totalSteps - 1,
-                    )}
-                  </div>
-                )}
                 <div className="ca-timeline">
                   <button
                     aria-label={
                       playing ? "Pause CA playback" : "Play CA history"
                     }
-                    disabled={!decoded}
+                    disabled={!decoded && !playing}
                     onClick={() => {
                       if (
                         !playing &&
                         decoded &&
-                        visibleLayers >= decoded.layers.length
+                        visibleLayers >= playbackLayers
                       )
                         setVisibleLayers(1);
-                      setPlaying((value) => !value);
+                      if (playing) stopPlayback();
+                      else {
+                        if (individual) setGalleryCursor(individual.id);
+                        playingIntent.current = true;
+                        setPlaying(true);
+                      }
                     }}
                   >
                     {playing ? <Pause size={12} /> : <Play size={12} />}
@@ -1176,35 +1333,44 @@ export default function App() {
                     type="range"
                     aria-label="CA timestep"
                     min="1"
-                    max={decoded?.layers.length ?? 1}
-                    value={decoded ? visibleLayers : 1}
+                    max={playbackLayers}
+                    value={
+                      decoded ? Math.min(visibleLayers, playbackLayers) : 1
+                    }
                     disabled={!decoded}
                     onChange={(event) => {
-                      setPlaying(false);
+                      stopPlayback();
                       setVisibleLayers(Number(event.target.value));
                     }}
                   />
                   <output>
-                    {actualTime} / {Math.max(0, (frame?.totalSteps ?? 1) - 1)}
+                    {actualTime} /{" "}
+                    {decoded?.layerTimes[playbackLayers - 1] ?? 0}
                   </output>
                   <select
-                    aria-label="Preview fixture"
-                    value={String(previewSeed)}
+                    aria-label="Animation speed"
+                    title="Animation speed"
+                    value={playbackSpeed}
                     onChange={(event) =>
-                      setFixtureSeed(Number(event.target.value))
+                      setPlaybackSpeed(Number(event.target.value))
                     }
                   >
-                    {detail.config.trainingSeeds.map((seed) => (
-                      <option key={`t${seed}`} value={seed}>
-                        Train {seed}
-                      </option>
-                    ))}
-                    {detail.config.validationSeeds.map((seed) => (
-                      <option key={`v${seed}`} value={seed}>
-                        Held-out {seed}
+                    {[0.5, 1, 2, 4, 8, 16].map((speed) => (
+                      <option key={speed} value={speed}>
+                        {speed}×
                       </option>
                     ))}
                   </select>
+                  <label className="check-field loop-animation">
+                    <input
+                      type="checkbox"
+                      checked={loopAnimation}
+                      onChange={(event) =>
+                        setLoopAnimation(event.target.checked)
+                      }
+                    />
+                    Loop animation
+                  </label>
                 </div>
               </section>
 

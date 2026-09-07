@@ -43,6 +43,7 @@ export class PreviewService {
       config.size,
       config.steps,
       config.seed,
+      config.seed === "soup" ? config.soupSize : null,
       seed,
       range,
     ]);

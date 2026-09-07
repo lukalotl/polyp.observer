@@ -26,7 +26,9 @@ interface Props {
   onCreate: (config: RunConfig, start: boolean) => Promise<unknown>;
 }
 type NumericKey = {
-  [K in keyof RunConfig]: RunConfig[K] extends number ? K : never;
+  [K in keyof RunConfig]-?: NonNullable<RunConfig[K]> extends number
+    ? K
+    : never;
 }[keyof RunConfig];
 const seeds = (text: string) =>
   text.trim()
@@ -49,7 +51,10 @@ export default function RunDialog({
   onCreate,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [draft, setDraft] = useState<RunConfig>(() => structuredClone(initial));
+  const [draft, setDraft] = useState<RunConfig>(() => ({
+    ...structuredClone(initial),
+    fixtureFailures: "aggregate",
+  }));
   const [trainText, setTrainText] = useState(initial.trainingSeeds.join(", "));
   const [validationText, setValidationText] = useState(
     initial.validationSeeds.join(", "),
@@ -284,15 +289,52 @@ export default function RunDialog({
                   <select
                     aria-label="Seed pattern"
                     value={draft.seed}
-                    onChange={(event) =>
-                      update("seed", event.target.value as RunConfig["seed"])
-                    }
+                    onChange={(event) => {
+                      const seed = event.target.value as RunConfig["seed"];
+                      setDraft((current) => ({
+                        ...current,
+                        seed,
+                        ...(seed === "soup"
+                          ? {
+                              soupSize:
+                                current.soupSize ?? Math.min(9, current.size),
+                            }
+                          : {}),
+                      }));
+                      if (
+                        seed === "soup" &&
+                        trainText.trim() === "1729" &&
+                        !validationText.trim()
+                      ) {
+                        setTrainText("1729, 1730, 1731, 1732");
+                        setValidationText("2718, 2719");
+                      }
+                    }}
                   >
                     <option value="point">Point</option>
                     <option value="cross">Cross</option>
                     <option value="islands">Islands</option>
+                    <option value="soup">Random soup</option>
                   </select>
                 </label>
+                {draft.seed === "soup" && (
+                  <>
+                    {numeric(
+                      "soupSize",
+                      "Soup size N",
+                      1,
+                      draft.size,
+                      1,
+                      "Centered N × N square. Each cell is equally likely to be empty or any active state.",
+                    )}
+                    <p className="config-note">
+                      Each seed produces a different reproducible soup. All
+                      candidates train on the same set; held-out soups measure
+                      generalization. Choose Worst fixture to reward rules that
+                      work across every training soup.
+                    </p>
+                  </>
+                )}
                 <label className="config-field">
                   <span>Training seeds</span>
                   <input
@@ -310,10 +352,10 @@ export default function RunDialog({
                     onChange={(event) => setValidationText(event.target.value)}
                   />
                 </label>
-                {draft.seed !== "islands" && (
+                {(draft.seed === "point" || draft.seed === "cross") && (
                   <p className="config-note">
-                    Point and cross ignore fixture seeds. Use islands for
-                    distinct training and held-out fixtures.
+                    Point and cross ignore fixture seeds. Use islands or soup
+                    for distinct training and held-out fixtures.
                   </p>
                 )}
                 <label className="config-field">
@@ -329,10 +371,27 @@ export default function RunDialog({
                     }
                   >
                     <option value="longevity">Finite longevity</option>
+                    <option value="finiteSparse">Finite · fewer cells</option>
+                    <option value="finiteDense">Finite · more cells</option>
                     <option value="complexity">Complexity heuristic</option>
                     <option value="growth">Growth</option>
                   </select>
                 </label>
+                {(draft.objective === "finiteSparse" ||
+                  draft.objective === "finiteDense") && (
+                  <p className="config-note">
+                    Counts occupied cells across every timestep, including the
+                    seed.
+                    {draft.objective === "finiteSparse"
+                      ? " Rewards smaller spacetime volumes: score = 1 − occupied fraction. Immediate extinction is favored."
+                      : " Rewards larger spacetime volumes: score = occupied fraction."}{" "}
+                    A fixture must start nonempty and be extinct by the final
+                    timestep to score. Failed fixtures contribute zero. Mean
+                    rewards average success; Worst fixture requires every
+                    fixture to succeed. Held-out fixtures are assessed
+                    separately.
+                  </p>
+                )}
                 {draft.objective === "longevity" && (
                   <p className="config-note">
                     Rewards the longest lifetime that ends within the horizon.
@@ -368,11 +427,11 @@ export default function RunDialog({
                 </label>
                 <p className="config-note">
                   Any occupied cell touching the left, right, front or back
-                  edge, or remaining at the final timestep, counts as contact.
-                  One disqualifying training fixture gives the whole candidate
-                  zero fitness. Held-out fixtures are assessed separately.
-                  Finite longevity always requires extinction before the cutoff,
-                  even with cutoff disqualification off.
+                  edge, or remaining at the final timestep, counts as contact. A
+                  disqualified fixture contributes zero to the chosen
+                  aggregation. Held-out fixtures are assessed separately. All
+                  finite objectives require extinction before the cutoff, even
+                  with cutoff disqualification off.
                 </p>
                 <label className="config-field">
                   <span>Aggregation</span>
@@ -390,6 +449,14 @@ export default function RunDialog({
                     <option value="minimum">Worst fixture</option>
                   </select>
                 </label>
+                <p className="config-note">
+                  Mean averages all fixture scores, including zero for each
+                  failure, so it rewards rules that fail less often. Worst
+                  fixture uses the lowest score, so any failure gives zero. One
+                  successful fixture scoring 0.8 and one failure give mean 0.4
+                  or worst 0. Held-out scores use the same aggregation
+                  separately.
+                </p>
                 {draft.objective === "complexity" && (
                   <div className="weight-fields">
                     {(

@@ -11,11 +11,15 @@ import React, {
 } from "react";
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
 import { OrbitControls, OrthographicCamera } from "@react-three/drei";
-import GalleryViewport, { GalleryClear } from "../rendering/GalleryViewport";
+import GalleryViewport, {
+  GalleryComposition,
+} from "../rendering/GalleryViewport";
 import { galleryLayout, galleryWindow } from "../research/gallery";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import TechnicalStage from "../rendering/TechnicalStage";
+import SimulationBounds from "../rendering/SimulationBounds";
+import { simulationBounds, cutoffHeight } from "../rendering/simulationBounds";
 import DenseVolume from "./DenseVolume";
 import {
   needsDenseRenderer,
@@ -48,6 +52,7 @@ export interface VolumeProps {
   grain: boolean;
   autoRotate: boolean;
   resetKey: number;
+  cutoffTime?: number;
   /** Local display only. False preserves one timestep per spatial cell unit. */
   compressTime?: boolean;
   annotations?: boolean;
@@ -368,6 +373,7 @@ function Scene({
   interactive = true,
   viewportSize,
   domElement,
+  cutoffTime,
 }: VolumeProps & {
   boxed?: boolean;
   interactive?: boolean;
@@ -407,6 +413,18 @@ function Scene({
   );
   const count = data ? visibleCount(data, visibleLayers) : 0;
   const layout = (dense ?? data)!;
+  const bounds = useMemo(
+    () => simulationBounds(simulation.size, layout.bounds),
+    [simulation.size, layout.bounds],
+  );
+  const ceiling =
+    cutoffTime === undefined
+      ? undefined
+      : cutoffHeight(
+          cutoffTime,
+          simulation.layerTimes?.[0] ?? 0,
+          layout.timeLayout.scale,
+        );
   return (
     <>
       <color attach="background" args={["#090f16"]} />
@@ -428,11 +446,15 @@ function Scene({
           timeLayout={layout.timeLayout}
           annotations={annotations}
           layerTimes={simulation.layerTimes}
-          occupiedBounds={fitMode === "specimen" ? layout.bounds : null}
+          occupiedBounds={fitMode === "specimen" ? bounds : null}
           specimen={fitMode === "specimen"}
         />
       )}
-      {boxed && <ContentBounds bounds={layout.bounds} size={simulation.size} />}
+      <SimulationBounds
+        bounds={bounds}
+        size={simulation.size}
+        ceiling={ceiling}
+      />
       {dense ? (
         <DenseVolume
           data={dense}
@@ -472,43 +494,13 @@ function Scene({
         annotations={annotations}
         fitMode={fitMode}
         view={view}
-        occupiedBounds={layout.bounds}
+        occupiedBounds={bounds}
         interactive={interactive}
         viewportSize={viewportSize}
         domElement={domElement}
       />
     </>
   );
-}
-
-function ContentBounds({
-  bounds,
-  size,
-}: {
-  bounds: VolumeBounds | null;
-  size: number;
-}) {
-  const box = useMemo(() => {
-    const padding = Math.max(0.4, size * 0.018);
-    const box = bounds
-      ? new THREE.Box3(
-          new THREE.Vector3(...bounds.min),
-          new THREE.Vector3(...bounds.max),
-        ).expandByScalar(padding)
-      : new THREE.Box3(
-          new THREE.Vector3(-1, -1, -1),
-          new THREE.Vector3(1, 1, 1),
-        );
-    return new THREE.Box3Helper(box, new THREE.Color("#a596bf"));
-  }, [bounds, size]);
-  useEffect(
-    () => () => {
-      box.geometry.dispose();
-      (box.material as THREE.Material).dispose();
-    },
-    [box],
-  );
-  return <primitive object={box} />;
 }
 
 function RendererFallback({
@@ -733,6 +725,9 @@ export default function Volume(props: VolumeProps) {
                   role="option"
                   aria-selected={selected}
                   data-rendered={visible && Boolean(item.simulation)}
+                  data-presentation={
+                    selected ? "interactive-3d" : "flat-projection"
+                  }
                   aria-label={`Model ${index + 1}: ${item.id}, ${item.label}`}
                   onPointerDown={(event) => {
                     pointerStart.current = [event.clientX, event.clientY];
@@ -808,8 +803,7 @@ export default function Volume(props: VolumeProps) {
             }}
           >
             {gallery ? (
-              <>
-                <GalleryClear />
+              <GalleryComposition>
                 {gallery.items.map((item, index) => {
                   if (!visibleIndices.includes(index) || !item.simulation)
                     return null;
@@ -820,6 +814,7 @@ export default function Volume(props: VolumeProps) {
                       key={item.id}
                       track={element}
                       index={index}
+                      selected={selected}
                     >
                       <OrthographicCamera
                         makeDefault
@@ -831,11 +826,7 @@ export default function Volume(props: VolumeProps) {
                       <Scene
                         {...props}
                         simulation={item.simulation}
-                        visibleLayers={
-                          selected
-                            ? props.visibleLayers
-                            : item.simulation.layers.length
-                        }
+                        visibleLayers={props.visibleLayers}
                         boxed={!selected}
                         interactive={selected}
                         annotations={selected && props.annotations}
@@ -846,7 +837,7 @@ export default function Volume(props: VolumeProps) {
                         viewportSize={{
                           width: itemWidth * (selected ? 1 : 0.86),
                           height:
-                            Math.max(1, viewportSize.height - 42) *
+                            Math.max(1, viewportSize.height) *
                             (selected ? 1 : 0.86),
                         }}
                         onLayerSelect={
@@ -856,7 +847,7 @@ export default function Volume(props: VolumeProps) {
                     </GalleryViewport>
                   );
                 })}
-              </>
+              </GalleryComposition>
             ) : (
               <Scene
                 {...props}

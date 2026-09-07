@@ -89,6 +89,45 @@ async function submit(name = "Create paused") {
 }
 
 describe("complete, immutable run configuration", () => {
+  it("configures soup dimensions and finite scoring with diverse default fixtures", async () => {
+    const { onCreate } = dialog();
+    field("Seed pattern", "soup");
+    expect(screen.getByLabelText("Soup size N")).toHaveValue(9);
+    expect(screen.getByLabelText("Training seeds")).toHaveValue(
+      "1729, 1730, 1731, 1732",
+    );
+    field("Soup size N", 6);
+    field("Objective", "finiteSparse");
+    field("Aggregation", "minimum");
+    await submit();
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seed: "soup",
+        soupSize: 6,
+        objective: "finiteSparse",
+        aggregation: "minimum",
+        trainingSeeds: [1729, 1730, 1731, 1732],
+        validationSeeds: [2718, 2719],
+      }),
+      false,
+    );
+  });
+  it("preserves explicitly chosen fixture sets when selecting soup", async () => {
+    const { onCreate } = dialog();
+    field("Training seeds", "15, 16");
+    field("Held-out seeds", "99");
+    field("Seed pattern", "soup");
+    field("Objective", "finiteDense");
+    await submit();
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        objective: "finiteDense",
+        trainingSeeds: [15, 16],
+        validationSeeds: [99],
+      }),
+      false,
+    );
+  });
   it("defaults both boundary policies on and serializes independent overrides through fields and JSON", async () => {
     const { onCreate } = dialog();
     const spatial = screen.getByLabelText("Disqualify spatial edge contact");
@@ -351,11 +390,19 @@ describe("complete, immutable run configuration", () => {
   });
 });
 
-async function mountApp(detail = fixture.detail, withPreview = true) {
+async function mountApp(
+  detail = fixture.detail,
+  withPreview = true,
+  autoplay = false,
+) {
   const view = render(<App />);
   const socket = ResearchSocket.instances.at(-1)!;
   await http.reply("/api/runs", runList([detail]));
   await http.reply(`/api/runs/${detail.summary.id}`, detail);
+  if (!autoplay) {
+    fireEvent.click(screen.getByLabelText("Pause CA playback"));
+    field("Inspected candidate", "best");
+  }
   socket.hello();
   if (withPreview) await finishPreviews(detail);
   return { ...view, socket };
@@ -395,6 +442,170 @@ async function uploadCheckpoint(file: File) {
 }
 
 describe("API-backed research workbench", () => {
+  it("loops through training and held-out soups with a fixed rule and stable fixture controls", async () => {
+    const soup = await researchFixture("soup-run", 0, {
+      seed: "soup",
+      soupSize: 6,
+      steps: 8,
+      trainingSeeds: [1, 2],
+      validationSeeds: [3],
+    });
+    vi.useFakeTimers();
+    await mountApp(soup.detail, true, true);
+    const selector = screen.getByLabelText("Preview fixture");
+    const status = screen.getByLabelText("Fixture boundary contacts");
+    expect(screen.getByLabelText("Loop animation")).toBeChecked();
+    expect(screen.getByLabelText("Starting configuration")).toHaveTextContent(
+      "Soup 6 × 6",
+    );
+    const genome = soup.detail.snapshot!.champion.genome;
+    expect(screen.getByLabelText("Pause CA playback")).toBeEnabled();
+    for (const seed of [2, 3, 1]) {
+      const end = Number(
+        screen.getByLabelText("CA timestep").getAttribute("max"),
+      );
+      for (let step = 1; step < end; step++)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(25);
+        });
+      const previous = (selector as HTMLSelectElement).value;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(199);
+      });
+      expect(selector).toHaveValue(previous);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(selector).toHaveValue(String(seed));
+      expect(screen.getByLabelText("Preview fixture")).toBe(selector);
+      expect(screen.getByLabelText("Fixture boundary contacts")).toBe(status);
+      expect(status).toHaveTextContent("Loading fixture");
+      const pending = http.pending("/api/runs/soup-run/preview", "POST");
+      expect(JSON.parse(String(pending.options.body))).toMatchObject({
+        genome,
+        seed,
+      });
+      await finishPreviews(soup.detail);
+      expect(volumeProps().visibleLayers).toBe(1);
+      expect(screen.getByLabelText("Pause CA playback")).toBeEnabled();
+    }
+    fireEvent.click(screen.getByLabelText("Loop animation"));
+    const end = Number(
+      screen.getByLabelText("CA timestep").getAttribute("max"),
+    );
+    for (let step = 1; step < end; step++)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(25);
+      });
+    expect(screen.getByLabelText("Play CA history")).toBeEnabled();
+    expect(volumeProps().visibleLayers).toBe(end);
+  });
+  it("defaults to 4× playback and changes speed immediately", async () => {
+    vi.useFakeTimers();
+    await mountApp(fixture.detail, true, true);
+    expect(screen.getByLabelText("Animation speed")).toHaveValue("4");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(25);
+    });
+    expect(volumeProps().visibleLayers).toBe(2);
+    field("Animation speed", "1");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(99);
+    });
+    expect(volumeProps().visibleLayers).toBe(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(volumeProps().visibleLayers).toBe(3);
+    field("CA timestep", 4);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(volumeProps().visibleLayers).toBe(4);
+  });
+  it("waits for the longest visible model and holds exactly 200ms without empty cutoff padding", async () => {
+    vi.useFakeTimers();
+    const short = Array(45).fill(0);
+    short[9] = 2;
+    const long = short.slice();
+    long[18] = 3;
+    long[27] = 4;
+    const example = await researchFixture("finite", 0, {
+      seed: "point",
+      steps: 32,
+      seedGenome: short,
+      trainingSeeds: [1729],
+      validationSeeds: [],
+    });
+    const snapshot = example.detail.snapshot!;
+    snapshot.population = [
+      { ...snapshot.population[0], id: "short", genome: short, fitness: 0.1 },
+      { ...snapshot.population[1], id: "long", genome: long, fitness: 0.2 },
+    ];
+    await mountApp(example.detail, true, true);
+    field("Inspected candidate", "generation");
+    await act(async () => {
+      volumeProps().gallery!.onSelect(0);
+    });
+    await finishPreviews(example.detail);
+    act(() => volumeProps().gallery!.onVisibleChange!([0, 1]));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(volumeProps().visibleLayers).toBe(1); // Wait for the visible neighbor.
+    await finishPreviews(example.detail);
+    expect(screen.getByLabelText("CA timestep")).toHaveAttribute("max", "4");
+    for (let layer = 2; layer <= 4; layer++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(25);
+      });
+      expect(volumeProps().visibleLayers).toBe(layer);
+    }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(199);
+    });
+    expect(volumeProps().visibleLayers).toBe(4);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(volumeProps().visibleLayers).toBe(1);
+    expect(volumeProps().simulation.layers).toHaveLength(32);
+  });
+  it("honors pause during fixture loading and leaves fixture status mounted when browsing", async () => {
+    const soup = await researchFixture("soup-run", 0, {
+      seed: "soup",
+      soupSize: 6,
+      steps: 8,
+      trainingSeeds: [1, 2],
+      validationSeeds: [],
+    });
+    vi.useFakeTimers();
+    await mountApp(soup.detail, true, true);
+    const end = Number(
+      screen.getByLabelText("CA timestep").getAttribute("max"),
+    );
+    for (let step = 1; step < end; step++)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(25);
+      });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    fireEvent.click(screen.getByLabelText("Pause CA playback"));
+    await finishPreviews(soup.detail);
+    expect(screen.getByLabelText("Play CA history")).toBeEnabled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(screen.getByLabelText("Preview fixture")).toHaveValue("2");
+    const status = screen.getByLabelText("Fixture boundary contacts");
+    field("Inspected candidate", "generation");
+    fireEvent.click(screen.getByLabelText("Previous model"));
+    expect(screen.getByLabelText("Fixture boundary contacts")).toBe(status);
+    expect(status).toHaveTextContent("Loading fixture");
+    await finishPreviews(soup.detail);
+    expect(screen.getByLabelText("Fixture boundary contacts")).toBe(status);
+  });
   it("starts empty without fabricating a population or creating a browser-owned job", async () => {
     render(<App />);
     expect(screen.getByText("Loading runs…")).toBeVisible();
@@ -622,6 +833,50 @@ describe("API-backed research workbench", () => {
     expect(
       screen.getByText("Generation 2 · 8 individuals · fitness descending"),
     ).toBeVisible();
+  });
+  it("starts and stops the right-clicked run without switching the selected run", async () => {
+    const other = changed(fixture.detail, {
+      id: "run-b",
+      name: "Other run",
+      status: "running",
+    });
+    const { socket } = await mountApp();
+    act(() =>
+      socket.reply({ type: "runs", ...runList([fixture.detail, other]) }),
+    );
+    const row = screen.getByLabelText("Select run Other run");
+    fireEvent.contextMenu(row, { clientX: 140, clientY: 210 });
+    const menu = screen.getByRole("menu", { name: "Run actions" });
+    expect(
+      within(menu).getByRole("menuitem", { name: "Start" }),
+    ).toBeDisabled();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Stop" }));
+    expect(
+      JSON.parse(
+        String(http.pending("/api/runs/run-b/actions", "POST").options.body),
+      ),
+    ).toEqual({ action: "pause" });
+    expect(
+      screen.getByLabelText(`Select run ${fixture.detail.config.name}`),
+    ).toHaveAttribute("aria-pressed", "true");
+    await http.reply(
+      "/api/runs/run-b/actions",
+      changed(other, { status: "paused" }),
+      "POST",
+    );
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+    expect(screen.getByRole("menuitem", { name: "Start" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Start" }));
+    expect(
+      JSON.parse(
+        String(http.pending("/api/runs/run-b/actions", "POST").options.body),
+      ),
+    ).toEqual({ action: "start" });
+    await http.reply("/api/runs/run-b/actions", other, "POST");
+    fireEvent.contextMenu(row);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(row).toHaveFocus();
   });
   it("sends Step/Start/Pause over HTTP, disables concurrent controls, and preserves accepted state on failure", async () => {
     await mountApp();

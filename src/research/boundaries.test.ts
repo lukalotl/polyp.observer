@@ -9,6 +9,7 @@ import type { RunConfig } from "./types";
 
 const config = (patch: Partial<RunConfig> = {}): RunConfig => ({
   ...structuredClone(DEFAULT_RUN_CONFIG),
+  fixtureFailures: "all",
   stateCount: 2,
   seedGenome: Array(18).fill(0),
   size: 9,
@@ -147,6 +148,40 @@ describe("boundary qualification of complete trajectories", () => {
       expect(validation.validationDisqualified).toBe(true);
     },
   );
+  it("averages failures as zero while worst-fixture and legacy runs retain their strict behavior", async () => {
+    const cfg = config({
+      fixtureFailures: "aggregate",
+      seed: "islands",
+      seedGenome: split,
+      trainingSeeds: [1, 2],
+      validationSeeds: [3, 4],
+      mutationRate: 0,
+      boundaryPolicy: { spatial: true, horizon: false },
+    });
+    const mean = evaluateGenome(split, cfg);
+    expect(mean.fixturePasses?.training).toEqual([false, true]);
+    expect(mean.fitness).toBe(mean.trainingScores[1] / 2);
+    expect(mean.fitness).toBeGreaterThan(0);
+    expect(mean.validationFitness).toBe(
+      mean.validationScores.reduce((a, b) => a + b, 0) / 2,
+    );
+    expect(
+      evaluateGenome(split, { ...cfg, aggregation: "minimum" }).fitness,
+    ).toBe(0);
+    const { fixtureFailures: _, ...legacy } = cfg;
+    expect(evaluateGenome(split, legacy)).toMatchObject({
+      fitness: 0,
+      disqualified: true,
+    });
+    expect(evaluateGenome(split, legacy).fixturePasses).toBeUndefined();
+    const state = await initializePopulation(cfg);
+    expect(validateEngineState(JSON.parse(JSON.stringify(state)))).toEqual(
+      state,
+    );
+    const invalid = structuredClone(state);
+    invalid.cache[0].evaluation.fixturePasses!.training[0] = true;
+    expect(() => validateEngineState(invalid)).toThrow(/Fixture passes/);
+  });
   it("round-trips disqualification through populations and cached evaluation without accepting contradictory flags", async () => {
     const cfg = config({
       seed: "islands",

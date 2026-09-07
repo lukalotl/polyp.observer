@@ -24,9 +24,15 @@ function checkBounds(frame: ReturnType<typeof sampleTrajectory>) {
 
 describe("bounded previews of full-depth scientific trajectories", () => {
   it("matches independent full-history trajectories, including changing bounds and extinction", () => {
-    for (const seed of ["point", "cross", "islands"] as const)
+    for (const seed of ["point", "cross", "islands", "soup"] as const)
       for (let i = 0; i < 9; i++) {
-        const config = { ...DEFAULT_RUN_CONFIG, size: 17, steps: 259, seed };
+        const config = {
+          ...DEFAULT_RUN_CONFIG,
+          size: 17,
+          steps: 259,
+          seed,
+          soupSize: 8,
+        };
         const genome =
           i < 3
             ? PRESETS[i].genome

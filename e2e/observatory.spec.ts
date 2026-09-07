@@ -125,6 +125,7 @@ async function createRun(
   testInfo: TestInfo,
   start = false,
   overrides: Partial<RunConfig> = {},
+  autoplay = false,
 ) {
   await page
     .getByRole("button", { name: "New run", exact: true })
@@ -182,6 +183,8 @@ async function createRun(
       exact: true,
     }),
   ).toHaveAttribute("aria-pressed", "true");
+  if (!autoplay && (await page.getByLabel("Pause CA playback").isVisible()))
+    await page.getByLabel("Pause CA playback").click();
   return run;
 }
 async function waitForPaused(
@@ -948,6 +951,21 @@ test("compact carousel centers visible specimens, culls offscreen models, and co
   expect(slotWidth).toBeCloseTo(hostWidth / 5, 0);
   expect(slotWidth).toBeLessThan(260);
   await expect(options.first()).toHaveAttribute("data-rendered", "false");
+  await expect(options.last()).toHaveAttribute(
+    "data-presentation",
+    "interactive-3d",
+  );
+  await expect(options.nth(3)).toHaveAttribute(
+    "data-presentation",
+    "flat-projection",
+  );
+  const modelArea = (await options
+    .last()
+    .locator(".model-view")
+    .boundingBox())!;
+  const slotArea = (await options.last().boundingBox())!;
+  expect(modelArea.height).toBe(slotArea.height);
+  expect(modelArea.y).toBe(slotArea.y);
 
   // Inspect actual rendered pixels, not just correctly placed DOM boxes. This
   // catches a fresh camera looking at y=0 and cropping a specimen at its base.
@@ -1076,4 +1094,112 @@ test("compact carousel centers visible specimens, culls offscreen models, and co
   await expect(options.last()).toHaveAttribute("aria-selected", "true");
   expect(observations.get(page)!.mutations).toHaveLength(mutations);
   await screenArtifact(page, testInfo, "centered-model-carousel");
+});
+
+test("soup carousel cycles fixtures with adjustable speed and stable canvas overlays", async ({
+  page,
+  request,
+}, testInfo) => {
+  const run = await createRun(
+    page,
+    testInfo,
+    false,
+    {
+      seed: "soup",
+      soupSize: 6,
+      objective: "finiteDense",
+      steps: 32,
+      trainingSeeds: [1729, 1730],
+      validationSeeds: [2718],
+    },
+    true,
+  );
+  await step(page, request, run.summary.id);
+  const fixture = page.getByLabel("Starting configuration");
+  const canvas = page.locator(".champion-canvas");
+  const selector = page.getByLabel("Preview fixture");
+  await expect(page.getByLabel("Pause CA playback")).toBeEnabled();
+  await page.getByLabel("Pause CA playback").click();
+  await page.getByLabel("Preview fixture").selectOption("1729");
+  await expect(page.getByLabel("Loop animation")).toBeChecked();
+  await expect(page.getByLabel("Animation speed")).toHaveValue("4");
+  await expect(fixture).toContainText("Soup 6 × 6");
+  const before = (await canvas.boundingBox())!;
+  const position = (await fixture.boundingBox())!;
+  expect(position.x).toBeGreaterThan(before.x + before.width / 2);
+  expect(position.y).toBeGreaterThanOrEqual(before.y);
+  expect(position.y).toBeLessThan(before.y + 16);
+  expect(position.x + position.width).toBeGreaterThan(
+    before.x + before.width - 20,
+  );
+  // Slow enough to observe a whole lap reliably even under software WebGL.
+  await page.getByLabel("Animation speed").selectOption("1");
+  await page.getByLabel("Play CA history").click();
+  const genomes: number[][] = [];
+  for (const seed of [1730, 2718, 1729]) {
+    const response = await page.waitForResponse((response) => {
+      if (!response.url().endsWith(`/runs/${run.summary.id}/preview`))
+        return false;
+      const input = response.request().postDataJSON();
+      return input.seed === seed;
+    });
+    expect(response.ok()).toBe(true);
+    genomes.push(response.request().postDataJSON().genome);
+    await expect(selector).toHaveValue(String(seed));
+  }
+  expect(genomes[1]).toEqual(genomes[0]);
+  expect(genomes[2]).toEqual(genomes[0]);
+  await page.getByLabel("Pause CA playback").click();
+  await page.getByLabel("Inspected candidate").selectOption("generation");
+  await page.getByLabel("Previous model").click();
+  await expect(fixture).toBeVisible();
+  expect(await canvas.boundingBox()).toEqual(before);
+  await screenArtifact(page, testInfo, "soup-fixture-header");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(fixture).toBeVisible();
+  const mobileFixture = (await fixture.boundingBox())!;
+  expect(mobileFixture.x).toBeGreaterThanOrEqual(0);
+  expect(mobileFixture.x + mobileFixture.width).toBeLessThanOrEqual(390);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await screenArtifact(page, testInfo, "soup-fixture-mobile");
+});
+
+test("sidebar context menu starts and stops a different run without moving selection", async ({
+  page,
+  request,
+}, testInfo) => {
+  const first = await createRun(page, testInfo, false, {
+    name: "Context target",
+  });
+  const second = await createRun(page, testInfo, false, {
+    name: "Context observer",
+  });
+  const row = page.getByRole("button", {
+    name: "Select run Context target",
+    exact: true,
+  });
+  await row.click({ button: "right" });
+  await expect(
+    page.getByRole("menuitem", { name: "Stop", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("menuitem", { name: "Start", exact: true }).click();
+  await expect
+    .poll(async () => (await detail(request, first.summary.id)).summary.status)
+    .toBe("running");
+  await expect(
+    page.getByRole("button", {
+      name: "Select run Context observer",
+      exact: true,
+    }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Stop", exact: true }).click();
+  await expect
+    .poll(async () => (await detail(request, first.summary.id)).summary.status)
+    .toBe("paused");
+  expect((await detail(request, second.summary.id)).summary.generation).toBe(
+    -1,
+  );
 });

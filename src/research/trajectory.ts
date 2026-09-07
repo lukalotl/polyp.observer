@@ -20,7 +20,10 @@ function fixtureRandom(seed: number): () => number {
 /** Validated inputs only. The layer callback borrows the reused halo buffer. */
 export function streamTrajectory(
   genome: Genome,
-  config: Pick<RunConfig, "size" | "steps" | "seed" | "stateCount">,
+  config: Pick<
+    RunConfig,
+    "size" | "steps" | "seed" | "stateCount" | "soupSize"
+  >,
   seed: number,
   onLayer?: (
     time: number,
@@ -47,7 +50,7 @@ export function streamTrajectory(
     maxZ = Math.max(maxZ, z);
   };
   const center = Math.floor(size / 2);
-  place(center, center);
+  if (config.seed !== "soup") place(center, center);
   if (config.seed === "cross") {
     for (let d = 1; d <= 2; d++) {
       place(center + d, center);
@@ -55,6 +58,15 @@ export function streamTrajectory(
       place(center, center + d);
       place(center, center - d);
     }
+  } else if (config.seed === "soup") {
+    const random = fixtureRandom(seed);
+    const n = config.soupSize!;
+    const start = Math.floor((size - n) / 2);
+    for (let z = start; z < start + n; z++)
+      for (let x = start; x < start + n; x++) {
+        const state = Math.floor(random() * stateCount);
+        if (state) place(x, z, state);
+      }
   } else if (config.seed === "islands") {
     const random = fixtureRandom(seed),
       radius = Math.max(1, Math.floor(size * 0.16));

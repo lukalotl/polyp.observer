@@ -50,6 +50,14 @@ function fixture(
   let score: number;
   if (config.objective === "longevity")
     score = extinct ? clamp(lifetime / Math.max(1, steps - 1)) : 0;
+  else if (
+    config.objective === "finiteSparse" ||
+    config.objective === "finiteDense"
+  )
+    score =
+      extinct && lifetime > 0
+        ? clamp(config.objective === "finiteSparse" ? 1 - occupancy : occupancy)
+        : 0;
   else if (config.objective === "growth") {
     const gain = clamp(
       (final - population[0]) / Math.max(1, area - population[0]),
@@ -68,10 +76,11 @@ function fixture(
           (w.variation / total) * variation),
     );
   }
-  const disqualified = isDisqualified(
-    simulation.boundaryContacts,
-    config.boundaryPolicy,
-  );
+  const finiteCells =
+    config.objective === "finiteSparse" || config.objective === "finiteDense";
+  const disqualified =
+    (finiteCells && (!extinct || lifetime === 0)) ||
+    isDisqualified(simulation.boundaryContacts, config.boundaryPolicy);
   return { score: disqualified ? 0 : score, metrics, disqualified };
 }
 
@@ -100,11 +109,22 @@ function evaluateValid(genome: Genome, config: RunConfig): Evaluation {
     ]),
   ) as unknown as FitnessMetrics;
   return {
-    fitness: disqualified ? 0 : aggregate(trainingScores),
+    ...(config.fixtureFailures === "aggregate"
+      ? {
+          fixturePasses: {
+            training: training.map((result) => !result.disqualified),
+            validation: validation.map((result) => !result.disqualified),
+          },
+        }
+      : {}),
+    fitness:
+      disqualified && config.fixtureFailures !== "aggregate"
+        ? 0
+        : aggregate(trainingScores),
     disqualified,
     validationDisqualified,
     validationFitness: validationScores.length
-      ? validationDisqualified
+      ? validationDisqualified && config.fixtureFailures !== "aggregate"
         ? 0
         : aggregate(validationScores)
       : null,

@@ -521,7 +521,7 @@ input[type="range"]:disabled {
   overflow: hidden;
   isolation: isolate;
 }
-.champion-canvas > div:first-child:not(.preview-loading):not(.preview-error) {
+.champion-canvas > .model-gallery {
   position: absolute !important;
   inset: 0;
 }
@@ -588,12 +588,47 @@ input[type="range"]:disabled {
   cursor: pointer;
   margin: 9px 0;
 }
-.fixture-boundaries {
-  flex-shrink: 0;
-  padding: 5px 10px;
+.fixture-inspector {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 3;
+  width: min(280px, calc(100% - 20px));
+  text-align: right;
   font: 9px var(--mono);
   color: #8da5a1;
-  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.fixture-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: #bd98d8;
+}
+.fixture-heading select {
+  pointer-events: auto;
+  background: transparent;
+  border-color: transparent;
+  color: #c1c7cc;
+  min-width: 0;
+  max-width: 190px;
+  height: 19px;
+  font-size: 9px;
+  padding-right: 0;
+}
+.fixture-boundaries {
+  pointer-events: auto;
+  height: 12px;
+  line-height: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.loop-animation {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 9px;
 }
 .ca-timeline {
   display: flex;
@@ -1691,7 +1726,7 @@ input[type="range"]:disabled {
 .model-view,
 .model-placeholder {
   position: absolute;
-  inset: 0 0 42px;
+  inset: 0;
 }
 .model-placeholder {
   display: grid;
@@ -1785,4 +1820,36 @@ input[type="range"]:disabled {
     right: 5%;
     font-size: 8px;
   }
+}
+
+.run-context-menu {
+  position: fixed;
+  z-index: 100;
+  width: 190px;
+  padding: 5px;
+  border: 1px solid #34424e;
+  border-radius: 4px;
+  background: #101b26;
+  font: 11px var(--mono);
+}
+.run-context-title {
+  display: block;
+  padding: 5px 7px 8px;
+  color: #8da5a1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.run-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  text-align: left;
+  padding: 7px;
+}
+.run-context-menu button:hover:not(:disabled),
+.run-context-menu button:focus-visible {
+  background: #263043;
 }

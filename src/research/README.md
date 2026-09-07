@@ -1,10 +1,10 @@
 # Retained-population research engine
 
 This is a reproducible experiment engine for the existing visual CA, **not a
-reproduction of a published biological model**. Its three objectives are bounded,
+reproduction of a published biological model**. Its objectives are bounded,
 transparent heuristics. Higher fitness is evidence about these finite fixtures,
 not biological validity or generalization. The legacy `src/simulation` remains an
-unchanged, small-volume golden reference. Training and preview share
+small-volume golden reference. Training and preview share
 `trajectory.ts`, a streaming simulator with optional consecutive-plane observation.
 
 ## Public contract
@@ -37,6 +37,15 @@ is the finite number of recorded time layers, not genetic generations.
 Five-state evaluation reproduces legacy point/cross/islands placement and Mulberry32 RNG.
 Islands draw uniformly from occupied states 1 through `stateCount - 1`; their
 secondary neighbor uses state 2, or state 1 for binary rules. Point/cross use state 1.
+Soup requires explicit `soupSize` N (integer 1…grid size). Its centered N×N square
+starts at `floor((size - N) / 2)` on each axis; each cell is drawn independently
+and uniformly from all states, including empty, using the fixture's Mulberry32
+seed in row-major order. Outside is empty. No center cell is forced. Training,
+preview and replay use the same stored seeds; no fresh random draws are made per
+candidate. Existing non-soup configurations can omit `soupSize` and retain exact
+checkpoint/cache semantics. Selecting soup in the UI expands the untouched default
+fixture set to four training and two held-out seeds; explicit user lists survive.
+
 The explicit `ca5-moore-research-v1` checkpoint format migrates by adding
 `stateCount: 5`. Both v1 and `ca-moore-research-v2` migrate to v3 with
 `boundaryPolicy: { spatial: false, horizon: false }` and false qualification flags. RNG, fitness, IDs, cache, ancestry,
@@ -50,14 +59,17 @@ activity, variance, survival and finite-longevity denominators do not shorten.
 Variance uses the legacy ordered centered sum, not unstable `E[x²] - E[x]²`.
 
 Each genome is evaluated on all fixed training seeds and then all held-out seeds.
-Fitness is the training **mean** or **minimum**, unless any training fixture is
-disqualified, in which case overall fitness is zero. Validation is aggregated separately
-using the same rule and is **never** used for parent selection, elites, tie breaks,
+Fitness is the training **mean** or **minimum**, including a zero score for each
+failed fixture. Mean rewards partial success; minimum is zero if any fixture fails.
+`fixtureFailures: "aggregate"` pins this behavior in new runs. Older saved configs
+that omit it (or explicitly use `"all"`) retain their original any-failure-zero
+semantics and evaluation cache. New-run variants opt into aggregate behavior.
+Validation is aggregated separately using the same rule and is **never** used for parent selection, elites, tie breaks,
 or all-time champion. Metrics always average **training fixtures**, even when
 fitness uses minimum. Fixtures count separately even if their trajectories match.
 
 - Point and Cross ignore fixture RNG seeds, so multiple seeds do **not** establish
-  independent validation for those seed forms. Use Islands for varied placements.
+  independent validation for those seed forms. Use Islands or Soup for varied placements.
 - Lists reject duplicates, overlap and equivalent uint32 RNG aliases. Accepted
   safe-integer seeds are normalized by `>>> 0`, just like the golden simulator.
   Distinct Islands seeds still can produce similar/equal placements; this is not
@@ -72,15 +84,23 @@ fitness uses minimum. Fixtures count separately even if their trajectories match
 - `longevity = lifetime / (steps - 1)` **only when extinction was observed**;
   surviving at the horizon is censored and scores zero. This is finite longevity,
   not a claim that all survivors are immortal.
-- Changing complexity weights does not affect growth or longevity.
+- `finiteSparse = 1 - occupancy`; `finiteDense = occupancy`. Occupancy is total
+  occupied cell-timesteps (including the seed) / `(size² × steps)`. Both require
+  a nonempty seed and extinction by the final recorded timestep. A failing
+  fixture scores zero even with horizon policy off; mean still credits other
+  successful fixtures. Held-out fixtures are assessed independently. Fewer cells favors immediate
+  extinction; more cells rewards larger finite spacetime volumes.
+- Changing complexity weights does not affect the other objectives.
 - `boundaryPolicy` defaults to `{ spatial: true, horizon: true }` in new runs.
   Spatial contact means any occupied cell at x=0, x=size−1, z=0 or z=size−1,
   including corners. Contact at any timestep disqualifies that fixture even if
   it subsequently becomes extinct. Horizon contact means occupancy at t=steps−1.
   The intentional t=0 seed is not itself a disqualifying time boundary.
   Each switch independently sets contacting fixtures' scores to zero. Any such
-  training fixture sets `disqualified` and forces aggregate fitness to zero;
-  `validationDisqualified` applies the same rule only to held-out fitness.
+  training fixture sets `disqualified` (meaning at least one fixture failed).
+  With aggregate handling this flag does not override the mean. The optional
+  `fixturePasses` arrays record each pass/fail independently of its numeric score;
+  `validationDisqualified` reports failure in the held-out set only.
   Non-rejected per-fixture scores and all observed metrics are retained.
   Turning the horizon policy off does not remove finite longevity's intrinsic
   requirement for observed extinction. Preview contacts always describe the
@@ -244,3 +264,29 @@ The full population series and summary metrics include every timestep, even
 when previews are heavily sampled or extinction occurs early. Scoring keeps
 its original arithmetic, so existing checkpoints retain their model identity.
 Changing size or horizon still requires a fresh population evaluation.
+
+## Carousel playback
+
+Playback and looping start enabled, with a 4× speed (25ms per recorded layer).
+The speed selector offers 0.5×–16× and applies during playback. The scrub bar ends
+at the last occupied layer of the longest visible model, excluding empty cutoff
+padding. Scientific data, scoring and boundary contacts retain the full horizon.
+All visible previews load before playback starts, so they animate together. Once
+the last model finishes, a fixed 200ms hold precedes the next lap. Fixture changes
+load the next reproducible preview before advancing its animation; network/compute
+latency can add loading time. The complete configured training set is followed by
+the held-out set, then wraps to the first seed. Offscreen models remain culled.
+
+The selected rule stays fixed during playback. Pause, manual fixture selection and
+scrubbing cancel automatic playback; loading cannot override a manual pause. With
+looping off, playback stops at the last occupied layer. Fixture status is absolutely
+positioned in the canvas's top-right corner; captions overlay full-height models.
+Neighbor models are cached flat projections in one onscreen composition; the
+selected model is an interactive 3D foreground pass without per-slot clipping,
+allowing zoom and rotation to overlap neighboring projections.
+
+Spatial bounding boxes always span the true lattice `[-size/2, size/2]` on X and Z;
+only Y follows occupied voxel extents. A translucent red plane marks the actual
+cutoff timestep at `(cutoff - firstPreviewTime) × timeScale`, including cropped and
+compressed previews. The camera fits the spatial box and occupied Y extent, so a
+very distant cutoff may lie outside the current view until zoomed out.

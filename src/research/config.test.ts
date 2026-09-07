@@ -23,6 +23,7 @@ describe("pinned, bounded research configuration", () => {
       objective: "longevity",
       boundaryPolicy: { spatial: true, horizon: true },
       aggregation: "mean",
+      fixtureFailures: "aggregate",
       weights: {
         diversity: 0.34,
         activity: 0.3,
@@ -120,6 +121,7 @@ describe("pinned, bounded research configuration", () => {
     { size: "49" },
     { stateCount: 8 },
     { boundary: "toroidal" },
+    { fixtureFailures: "ignore" },
     { boundaryPolicy: undefined },
     { boundaryPolicy: { spatial: true } },
     { boundaryPolicy: { spatial: "yes", horizon: true } },

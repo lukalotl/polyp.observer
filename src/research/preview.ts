@@ -27,10 +27,11 @@ export function decodePreview(frame: PreviewFrame) {
   )
     throw new Error("Preview must include every consecutive timestep.");
   let bytes = 0;
+  let playbackLayers = 1;
   return {
     size: frame.simulation.size,
     layerTimes: frame.layerTimes,
-    layers: frame.simulation.layers.map((encoded) => {
+    layers: frame.simulation.layers.map((encoded, index) => {
       const adaptive = frame.encoding === "adaptive-v1";
       const codec = adaptive ? encoded[0] : frame.encoding ? "s" : "d";
       if (codec !== "s" && codec !== "d")
@@ -64,6 +65,7 @@ export function decodePreview(frame: PreviewFrame) {
           layer[i] = entry;
           previousCell = cell;
         }
+        if (layer.length) playbackLayers = index + 1;
         return layer;
       }
       if (raw.length !== frame.simulation.size ** 2)
@@ -71,10 +73,13 @@ export function decodePreview(frame: PreviewFrame) {
       const layer = new Uint8Array(raw.length);
       for (let i = 0; i < raw.length; i++) {
         layer[i] = raw.charCodeAt(i);
+        if (layer[i]) playbackLayers = index + 1;
         if (layer[i] >= frame.genome.length / 9)
           throw new Error("Invalid preview cell state.");
       }
       return layer;
     }),
+    // Empty padding stays in scientific data, but never extends visual playback.
+    playbackLayers,
   };
 }

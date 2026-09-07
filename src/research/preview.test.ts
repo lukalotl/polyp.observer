@@ -30,11 +30,36 @@ describe("complete sparse preview transport", () => {
   it("decodes every occupied cell and retains an empty consecutive plane", () => {
     const decoded = decodePreview(frame());
     expect(decoded.layerTimes).toEqual([1023, 1024]);
+    expect(decoded.playbackLayers).toBe(1);
     expect(decoded.layers).toHaveLength(2);
     expect(expandPreviewLayer(decoded.layers[0], 9)[40]).toBe(1);
     expect(
       expandPreviewLayer(decoded.layers[1], 9).every((value) => value === 0),
     ).toBe(true);
+  });
+  it("trims empty dense padding without discarding scientific layers or cropped times", () => {
+    const source = frame();
+    const empty = btoa(String.fromCharCode(...new Uint8Array(81)));
+    const live = btoa(
+      String.fromCharCode(
+        ...Uint8Array.from({ length: 81 }, (_, i) => (i === 40 ? 1 : 0)),
+      ),
+    );
+    const decoded = decodePreview({
+      ...source,
+      encoding: undefined,
+      layerTimes: [12, 13, 14, 15],
+      simulation: { ...source.simulation, layers: [live, live, empty, empty] },
+    });
+    expect(decoded.playbackLayers).toBe(2);
+    expect(decoded.layerTimes[decoded.playbackLayers - 1]).toBe(13);
+    expect(decoded.layers).toHaveLength(4);
+    expect(
+      decodePreview({
+        ...source,
+        simulation: { ...source.simulation, layers: ["", ""] },
+      }).playbackLayers,
+    ).toBe(1);
   });
   it.each(
     [[16], [1, 1], [33, 17], [(81 << 4) | 1], [(40 << 4) | 5]].map(

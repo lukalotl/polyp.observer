@@ -115,7 +115,15 @@ export function validateEvaluation(
   strict = true,
 ): Evaluation {
   const v = record(value, "Evaluation");
-  if (strict) exactKeys(v, evaluationKeys, "Evaluation");
+  if (strict)
+    exactKeys(
+      v,
+      [
+        ...evaluationKeys,
+        ...(Object.hasOwn(v, "fixturePasses") ? ["fixturePasses"] : []),
+      ],
+      "Evaluation",
+    );
   const scores = (value: unknown, length: number, label: string) => {
     if (!Array.isArray(value) || value.length !== length)
       throw new RangeError(`${label} fixture count mismatch.`);
@@ -145,6 +153,8 @@ export function validateEvaluation(
   if (
     (!config.boundaryPolicy.spatial &&
       !config.boundaryPolicy.horizon &&
+      config.objective !== "finiteSparse" &&
+      config.objective !== "finiteDense" &&
       (disqualified || validationDisqualified)) ||
     (disqualified && !trainingScores.includes(0)) ||
     (validationDisqualified && !validationScores.includes(0))
@@ -153,19 +163,57 @@ export function validateEvaluation(
       "Disqualification contradicts boundary policy or fixture scores.",
     );
   if (
-    Math.abs(fitness - (disqualified ? 0 : aggregate(trainingScores, config))) >
-      1e-12 ||
+    Math.abs(
+      fitness -
+        (disqualified && config.fixtureFailures !== "aggregate"
+          ? 0
+          : aggregate(trainingScores, config)),
+    ) > 1e-12 ||
     (validationScores.length === 0
       ? validationFitness !== null
       : validationFitness === null ||
         Math.abs(
           validationFitness -
-            (validationDisqualified ? 0 : aggregate(validationScores, config)),
+            (validationDisqualified && config.fixtureFailures !== "aggregate"
+              ? 0
+              : aggregate(validationScores, config)),
         ) > 1e-12)
   )
     throw new RangeError(
       "Fitness must match the configured fixture aggregation.",
     );
+  let fixturePasses: Evaluation["fixturePasses"];
+  if (Object.hasOwn(v, "fixturePasses")) {
+    const passes = record(v.fixturePasses, "Fixture passes");
+    exactKeys(passes, ["training", "validation"], "Fixture passes");
+    const validatePasses = (
+      value: unknown,
+      scores: number[],
+      failed: boolean,
+    ) => {
+      if (
+        !Array.isArray(value) ||
+        value.length !== scores.length ||
+        value.some(
+          (pass, index) =>
+            typeof pass !== "boolean" || (!pass && scores[index] !== 0),
+        ) ||
+        value.some((pass) => !pass) !== failed
+      )
+        throw new RangeError(
+          "Fixture passes must agree with scores and disqualification.",
+        );
+      return [...value] as boolean[];
+    };
+    fixturePasses = {
+      training: validatePasses(passes.training, trainingScores, disqualified),
+      validation: validatePasses(
+        passes.validation,
+        validationScores,
+        validationDisqualified,
+      ),
+    };
+  }
   const m = record(v.metrics, "Metrics");
   exactKeys(m, metricKeys, "Metrics");
   const metrics = Object.fromEntries(
@@ -177,6 +225,7 @@ export function validateEvaluation(
   if (Math.abs(metrics.persistence - metrics.lifetime / config.steps) > 1e-12)
     throw new RangeError("Persistence must match mean lifetime / horizon.");
   return {
+    ...(fixturePasses ? { fixturePasses } : {}),
     fitness,
     validationFitness,
     disqualified,
@@ -501,7 +550,10 @@ function migrateLegacyEvaluation(value: unknown, individual = false) {
   const v = record(value, "Legacy evaluation");
   exactKeys(
     v,
-    (individual ? individualKeys : evaluationKeys).filter(
+    [
+      ...(individual ? individualKeys : evaluationKeys),
+      ...(Object.hasOwn(v, "fixturePasses") ? ["fixturePasses"] : []),
+    ].filter(
       (key) => key !== "disqualified" && key !== "validationDisqualified",
     ),
     "Legacy evaluation",
@@ -591,7 +643,14 @@ export function validateEngineState(value: unknown): EngineState {
   };
   const individual = (value: unknown): Individual => {
     const item = record(value, "Individual");
-    exactKeys(item, individualKeys, "Individual");
+    exactKeys(
+      item,
+      [
+        ...individualKeys,
+        ...(Object.hasOwn(item, "fixturePasses") ? ["fixturePasses"] : []),
+      ],
+      "Individual",
+    );
     const individualId = id(item.id),
       genome = validateGenome(item.genome, config.stateCount);
     const birthGeneration = integer(

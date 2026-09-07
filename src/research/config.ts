@@ -19,6 +19,7 @@ export const DEFAULT_RUN_CONFIG: RunConfig = {
   objective: "longevity",
   boundaryPolicy: { spatial: true, horizon: true },
   aggregation: "mean",
+  fixtureFailures: "aggregate",
   weights: { diversity: 0.34, activity: 0.3, density: 0.24, variation: 0.12 },
   seedGenome: PRESETS[0].genome.slice(),
   initialization: "mutants",
@@ -132,7 +133,17 @@ function seeds(value: unknown, min: number, label: string): number[] {
 /** Complete, strict, detached configuration. No coercion, silent defaults or model overrides. */
 export function validateRunConfig(value: unknown): RunConfig {
   const v = record(value, "Configuration");
-  exactKeys(v, Object.keys(DEFAULT_RUN_CONFIG), "Configuration");
+  exactKeys(
+    v,
+    [
+      ...Object.keys(DEFAULT_RUN_CONFIG).filter(
+        (key) => key !== "fixtureFailures",
+      ),
+      ...(Object.hasOwn(v, "fixtureFailures") ? ["fixtureFailures"] : []),
+      ...(Object.hasOwn(v, "soupSize") ? ["soupSize"] : []),
+    ],
+    "Configuration",
+  );
   if (typeof v.name !== "string" || !v.name.trim() || v.name.length > 80)
     throw new RangeError(
       "Name must contain 1 through 80 characters and not be blank.",
@@ -194,15 +205,34 @@ export function validateRunConfig(value: unknown): RunConfig {
     stateCount,
     size,
     steps,
-    seed: choice(v.seed, ["point", "cross", "islands"], "seed"),
+    seed: choice(v.seed, ["point", "cross", "islands", "soup"], "seed"),
+    ...(v.seed === "soup" || Object.hasOwn(v, "soupSize")
+      ? {
+          soupSize: integer(
+            v.soupSize,
+            1,
+            v.seed === "soup" ? size : MAX_GRID_SIZE,
+            "Soup size",
+          ),
+        }
+      : {}),
     trainingSeeds,
     validationSeeds,
     objective: choice(
       v.objective,
-      ["complexity", "longevity", "growth"],
+      ["complexity", "longevity", "growth", "finiteSparse", "finiteDense"],
       "objective",
     ),
     aggregation: choice(v.aggregation, ["mean", "minimum"], "aggregation"),
+    ...(Object.hasOwn(v, "fixtureFailures")
+      ? {
+          fixtureFailures: choice(
+            v.fixtureFailures,
+            ["aggregate", "all"] as const,
+            "fixture failure handling",
+          ),
+        }
+      : {}),
     boundaryPolicy: { spatial: boundary.spatial, horizon: boundary.horizon },
     weights,
     seedGenome: validateGenome(v.seedGenome, stateCount),
@@ -271,6 +301,7 @@ export function migrateLegacyRunConfig(
     v,
     Object.keys(DEFAULT_RUN_CONFIG).filter(
       (key) =>
+        (key !== "fixtureFailures" || Object.hasOwn(v, key)) &&
         key !== "boundaryPolicy" &&
         (version !== LEGACY_MODEL_VERSION || key !== "stateCount"),
     ),

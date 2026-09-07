@@ -220,19 +220,38 @@ async function socket(
 }
 
 test("production and preview frontend origins can control and observe the VM without allowing lookalike sites", async (t) => {
-  const origins = ["https://polyp.observer", "https://polyp-preview.vercel.app"];
+  const origins = [
+    "https://polyp.observer",
+    "https://polyp-preview.vercel.app",
+  ];
   const f = await fixture(t, { publicOrigins: origins });
   for (const origin of origins) {
-    const result = await response(f.server, "runs", { config: tiny() }, { Origin: origin });
+    const result = await response(
+      f.server,
+      "runs",
+      { config: tiny() },
+      { Origin: origin },
+    );
     assert.equal(result.status, 201);
     const observer = await socket(t, f.server, origin);
     await observer.wait((event) => event.type === "hello");
     observer.peer.close();
   }
-  for (const origin of ["https://polyp.observer.attacker.invalid", "http://polyp.observer", "https://other-preview.vercel.app"]) {
-    assert.equal((await response(f.server, "runs", { config: tiny() }, { Origin: origin })).status, 403);
+  for (const origin of [
+    "https://polyp.observer.attacker.invalid",
+    "http://polyp.observer",
+    "https://other-preview.vercel.app",
+  ]) {
+    assert.equal(
+      (await response(f.server, "runs", { config: tiny() }, { Origin: origin }))
+        .status,
+      403,
+    );
     const status = await new Promise<number>((resolve, reject) => {
-      const peer = new WebSocket(`ws://127.0.0.1:${f.server.port}/api/research/ws`, { origin });
+      const peer = new WebSocket(
+        `ws://127.0.0.1:${f.server.port}/api/research/ws`,
+        { origin },
+      );
       peer.once("unexpected-response", (_request, result) => {
         result.resume();
         resolve(result.statusCode!);
@@ -1590,6 +1609,73 @@ test(
     assert.equal(
       (await api<{ workers: number }>(f.server, "health")).workers,
       0,
+    );
+  },
+);
+
+test(
+  "soup runs preserve scoring and previews across workers, cache keys and restart",
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const genome = Array(45).fill(0);
+    const cfg = tiny({
+      seed: "soup",
+      soupSize: 4,
+      size: 17,
+      steps: 8,
+      objective: "finiteSparse",
+      seedGenome: genome,
+      mutationRate: 0,
+      immigrantRate: 0,
+    });
+    const small = await create(f.server, cfg);
+    const large = await create(f.server, {
+      ...cfg,
+      soupSize: 8,
+      objective: "finiteDense",
+    });
+    for (const run of [small, large]) {
+      const evaluated = await step(f.server, run.summary.id);
+      const expected = evaluateGenome(genome, run.config);
+      assert.equal(evaluated.snapshot!.champion.fitness, expected.fitness);
+      assert.deepEqual(
+        evaluated.snapshot!.champion.trainingScores,
+        expected.trainingScores,
+      );
+      assert.deepEqual(
+        evaluated.snapshot!.champion.validationScores,
+        expected.validationScores,
+      );
+    }
+    const frames: PreviewFrame[] = [];
+    for (const run of [small, large, small]) {
+      const frame = await api<PreviewFrame>(
+        f.server,
+        `runs/${run.summary.id}/preview`,
+        { genome, seed: 11 },
+      );
+      const expected = simulate(genome, { ...run.config, randomSeed: 11 });
+      const actual = decodePreview(frame);
+      assert.deepEqual(
+        expandPreviewLayer(actual.layers[0], cfg.size),
+        expected.layers[0],
+      );
+      frames.push(frame);
+    }
+    assert.notDeepEqual(
+      frames[0].simulation.population,
+      frames[1].simulation.population,
+    );
+    assert.deepEqual(frames[0], frames[2]);
+    const saved = await checkpoint(f.server, small.summary.id);
+    await f.restart();
+    const restored = await checkpoint(f.server, small.summary.id);
+    assert.deepEqual(restored.state, saved.state);
+    assert.equal(
+      (await api<RunDetail>(f.server, `runs/${small.summary.id}`)).config
+        .soupSize,
+      4,
     );
   },
 );

@@ -59,10 +59,16 @@ describe("streaming scalar evaluator versus frozen space-time golden engine", ()
     expect(evaluateGenome(longer, cfg).fitness).toBe(4 / 2047);
     expect(evaluateGenome(survivor, cfg).fitness).toBe(0);
   });
-  it.each<Objective>(["complexity", "longevity", "growth"])(
+  it.each<Objective>([
+    "complexity",
+    "longevity",
+    "growth",
+    "finiteSparse",
+    "finiteDense",
+  ])(
     "matches randomized fixtures, all seed forms and boundary-reaching trajectories for %s within 1e-10",
     (objective) => {
-      for (const seed of ["point", "cross", "islands"] as SeedMode[])
+      for (const seed of ["point", "cross", "islands", "soup"] as SeedMode[])
         for (const size of [9, 17, 31])
           for (let i = 0; i < 16; i++) {
             const genome =
@@ -72,6 +78,7 @@ describe("streaming scalar evaluator versus frozen space-time golden engine", ()
             const cfg = config({
               objective,
               seed,
+              ...(seed === "soup" ? { soupSize: 6 } : {}),
               size,
               steps: i % 3 === 0 ? 64 : 8 + i,
               trainingSeeds: [i - 8],
