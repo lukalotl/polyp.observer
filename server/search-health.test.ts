@@ -52,16 +52,27 @@ const config = (patch: Partial<RunConfig> = {}): RunConfig => ({
   retainedSnapshots: 3,
   ...patch,
 });
+/**
+ * Clone-based fixtures need per-locus mutation: the heavy-tailed policy always
+ * changes at least one locus. An absent policy already means independent.
+ */
+function independentMutation(cfg: RunConfig): RunConfig {
+  if (cfg.mutationPolicy === undefined) return cfg;
+  const { mutationBeta: _beta, ...rest } = cfg;
+  return { ...rest, mutationPolicy: "independent" };
+}
 /** Clones of one founder never improve, so generationsSinceImprovement equals generation. */
 const stagnant = (patch: Partial<RunConfig> = {}): RunConfig =>
-  config({
-    seedGenome: Array(45).fill(0),
-    mutationRate: 0,
-    immigrantRate: 0,
-    crossover: "none",
-    maxGenerations: 0,
-    ...patch,
-  });
+  independentMutation(
+    config({
+      seedGenome: Array(45).fill(0),
+      mutationRate: 0,
+      immigrantRate: 0,
+      crossover: "none",
+      maxGenerations: 0,
+      ...patch,
+    }),
+  );
 async function response(server: Server, path: string, input?: unknown) {
   return fetch(`http://127.0.0.1:${server.port}/api/${path}`, {
     signal: AbortSignal.timeout(DEADLINE),
@@ -166,13 +177,17 @@ test(
   { timeout: 30_000 },
   async () => {
     await fixture(async (f) => {
-      const cfg = config({
-        boundaryPolicy: { spatial: false, horizon: false },
-        maxGenerations: 6,
-        mutationRate: 0.03,
-        immigrantRate: 0.25,
-        crossoverRate: 1,
-      });
+      // Sparse per-locus mutation leaves a fair share of children unchanged, so
+      // the run mixes fresh evaluations with cache repeats every generation.
+      const cfg = independentMutation(
+        config({
+          boundaryPolicy: { spatial: false, horizon: false },
+          maxGenerations: 6,
+          mutationRate: 0.03,
+          immigrantRate: 0,
+          crossover: "none",
+        }),
+      );
       const run = await api(f.server, "runs", { config: cfg, start: true });
       const done = await until(
         f.server,
