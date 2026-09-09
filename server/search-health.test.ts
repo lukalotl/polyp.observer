@@ -122,6 +122,30 @@ async function until(
   } while (Date.now() < end);
   assert.fail(`${label} timed out: ${JSON.stringify(last?.summary)}`);
 }
+interface Envelope {
+  intent: string | null;
+  summary: RunSummary;
+  checkpoint: { state: { generation: number } };
+}
+/**
+ * A halt publishes its final status before its durable write lands (an HTTP
+ * pause response waits for both, a self-inflicted stall pause has no response),
+ * so on-disk assertions poll the envelope rather than assuming ordering.
+ */
+async function durable(
+  file: string,
+  check: (stored: Envelope) => boolean,
+  label = "durable envelope",
+): Promise<Envelope> {
+  const end = Date.now() + DEADLINE;
+  let stored: Envelope | undefined;
+  do {
+    stored = JSON.parse(await readFile(file, "utf8")) as Envelope;
+    if (check(stored)) return stored;
+    await delay(20);
+  } while (Date.now() < end);
+  assert.fail(`${label} timed out: ${JSON.stringify(stored?.summary)}`);
+}
 async function step(server: Server, id: string): Promise<RunDetail> {
   const before = await api(server, `runs/${id}`);
   await action(server, id, "step");
@@ -481,10 +505,13 @@ test(
       );
       assert.deepEqual([health.workers, health.activeRuns], [0, 0]);
       const file = join(f.dir, `${run.summary.id}.json`);
-      const persisted = JSON.parse(await readFile(file, "utf8"));
-      assert.equal(persisted.summary.status, "paused");
+      const persisted = await durable(
+        file,
+        (stored) => stored.summary.status === "paused",
+        "durable stall pause",
+      );
       assert.equal(persisted.intent, null, "a stall is not resumable intent");
-      assert.match(persisted.summary.stopReason, /^Stalled: 3 /);
+      assert.match(persisted.summary.stopReason ?? "", /^Stalled: 3 /);
       assert.equal(
         persisted.checkpoint.state.generation,
         3,
