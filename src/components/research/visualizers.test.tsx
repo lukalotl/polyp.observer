@@ -434,7 +434,7 @@ describe("fitness history panel", () => {
     );
     const repeatToggle = screen.getByRole("checkbox", { name: "Repeat share" });
     const eliteToggle = screen.getByRole("checkbox", {
-      name: "Distinct elites",
+      name: "Distinct top ranks",
     });
     expect(repeatToggle).not.toBeChecked();
     expect(eliteToggle).not.toBeChecked();
@@ -465,16 +465,16 @@ describe("fitness history panel", () => {
     expect(ys[2]).toBeCloseTo(86, 1);
     expect(ys[3]).toBeCloseTo(20, 1);
     expect(
-      screen.getByText("Repeat share · Distinct elites (right, 0–1)"),
+      screen.getByText("Repeat share · Distinct top ranks (right, 0–1)"),
     ).toBeInTheDocument();
     const readout = container.querySelector(".rv-chart-readout")!;
     expect(readout).toHaveTextContent("Repeat share 37.5%");
-    expect(readout).toHaveTextContent("Distinct elites 4 / 4");
+    expect(readout).toHaveTextContent("Distinct top ranks 4 / 4");
     const chart = screen.getByRole("img", { name: /Fitness by GA generation/ });
     fireEvent.keyDown(chart, { key: "ArrowLeft" });
     expect(readout).toHaveTextContent("Generation 2");
     expect(readout).toHaveTextContent("Repeat share —");
-    expect(readout).toHaveTextContent("Distinct elites 3 / 4");
+    expect(readout).toHaveTextContent("Distinct top ranks 3 / 4");
     const health = screen.getByRole("region", { name: "Search health" });
     expect(health).toHaveTextContent("Since improvement 7 gen");
     expect(health).toHaveTextContent("Distinct among top 4 4 / 4");

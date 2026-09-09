@@ -53,8 +53,8 @@ const SERIES: {
   },
   {
     key: "distinctElites",
-    label: "Distinct elites",
-    axis: "Distinct elites",
+    label: "Distinct top ranks",
+    axis: "Distinct top ranks",
     color: "#e8eef3",
     dash: "1 3",
   },
