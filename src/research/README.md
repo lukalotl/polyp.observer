@@ -13,6 +13,13 @@ small-volume golden reference. Training and preview share
   Supply a **complete** config, normally a `structuredClone(DEFAULT_RUN_CONFIG)`
   with explicit changes. Validation rejects unknown fields, coercions and unsafe
   values, and returns detached arrays/weights. There are no hidden model switches.
+  The optional keys `fixtureFailures`, `randomRuleBias`, `elitism`,
+  `mutationPolicy`, `mutationBeta` and `stallGenerations` may be omitted by older
+  saved configurations; an absent key means the legacy behavior described below
+  and is returned absent, never defaulted, so old checkpoints replay byte-for-byte.
+- `mutation.ts`: pure change-count distributions (`heavyTailedWeights`,
+  `mutationChangeDistribution`, `rateForExpectedChanges`) shared by the engine's
+  heavy-tailed sampler and the run creator's summary. No RNG.
 - `evaluate.ts`: synchronous `evaluateGenome(genome, config): Evaluation` and
   asynchronous inline oracle `evaluateBatch(genomes, config): Promise<Evaluation[]>`.
 - `engine.ts`: async `initializePopulation(config, evaluate?)`, async
@@ -237,10 +244,32 @@ Every advance breeds from the **entire retained prior population**. The best
 `floor(populationSize * immigrantRate)` fresh, unparented random genomes fill the
 last slots. All other slots receive new, monotonically increasing `iN` IDs.
 
+`elitism` (optional) chooses _which_ `eliteCount` survive. Absent or `"slots"`
+keeps the top `eliteCount` of a stable fitness-descending sort, duplicates
+included. `"distinct"` walks that same sort keeping the first individual for each
+full genome key until `eliteCount` are kept; if the population holds fewer distinct
+genomes than slots, the next-best duplicates (in sort order) fill the remainder, so
+exactly `eliteCount` survive and `nextId === 1 + populationSize + generation ×
+(populationSize − eliteCount)` still holds. Retained elites are listed in fitness
+order and consume no RNG. Whenever the `eliteCount` fittest are already distinct,
+the two policies produce identical states.
+
 Tournament selection draws with replacement and retains the first contestant on
 fitness ties; tournament size controls pressure. Rank selection has linear rank
 weights 1..N, averaging equal-fitness ranks so neutral genotypes are not biased by
-stable ID/order. Uniform crossover chooses each unlocked locus independently.
+stable ID/order. `selection: "lexicase"` is epsilon-lexicase over per-fixture
+`trainingScores` and needs at least two training seeds (validation rejects one:
+a single fixture cannot distinguish specialists from the aggregate). Once per
+generation, from the _prior_ population, `eps[f]` is the median absolute deviation
+of the population's scores on training fixture `f`. Each selection then draws
+`fixtures − 1` `random.index` calls for a Fisher–Yates shuffle of fixture indices
+(`i` from last down to 1, `j = index(i + 1)`, swap), starts with every individual,
+and for each fixture in that order keeps those with
+`score >= max(remaining scores) − eps[f]`, stopping when one remains or fixtures
+are exhausted; one final `random.index(remaining.length)` picks uniformly among
+the survivors (always drawn, even for a single survivor). Held-out scores and
+`validationFitness` are never read. A fixture specialist that loses on the mean
+can therefore still breed. Uniform crossover chooses each unlocked locus independently.
 One-point crossover cuts between unlocked genes, using loci 1..cut from parent 0
 and cut+1..last from parent 1 (cut is 1..geneCount−2). `none` or a failed crossover probability
 keeps one parent. Crossover may select the same parent twice; its recorded mask
@@ -253,6 +282,42 @@ children have origin `crossover` even if also mutated; one-parent children are
 `mutant` or `clone`; founders/random/immigrants are unparented except that initial
 mutants reference the real founder. Full parent ID/genome/fitness/birth generation
 is retained, not display fingerprints.
+
+`mutationPolicy` (optional) selects the operator. Absent or `"independent"` is the
+operator above: one `random.next()` per unlocked locus in ascending order and, for
+each change, one `random.index(stateCount − 1)`. `"heavyTailed"` (the fast GA of
+Doerr et al. 2017) requires `mutationBeta` in `[1, 4]` and ignores `mutationRate`:
+`unlocked = 9 × stateCount − 1`, `kMax = max(1, floor(unlocked / 2))` and
+`P(k) ∝ k^−beta` for `k = 1..kMax`, taken from `heavyTailedWeights` in
+`mutation.ts` (index 0 is `k = 1`). Draw order per child: one `random.next()`
+against the cumulative table picks `k`; `k` `random.index(unlocked − i)` draws
+perform a partial Fisher–Yates over the unlocked loci `1..geneCount − 1` (swap
+position `i` with `i + draw`, `i = 0..k−1`); the chosen loci are sorted ascending
+and each then changes with one `random.index(stateCount − 1)` through the same
+`(g + 1 + draw) % stateCount` formula. `k ≥ 1`, so a one-parent child under this
+policy is always `mutant`, never `clone`; a two-parent child stays `crossover`.
+Initialization `"mutants"` uses the configured policy too. `mutationBeta` is
+rejected with any other policy or when the policy is absent.
+
+New drafts (`DEFAULT_RUN_CONFIG`) use `elitism: "distinct"`, `eliteCount: 2`,
+`tournamentSize: 2`, `mutationPolicy: "heavyTailed"`, `mutationBeta: 1.5` (about
+3.7 changes per child for five states, 46% single changes) and
+`mutationRate: 0.034` (≈ 1.5 changes across 44 loci if a draft switches back to
+`"independent"`), with `stallGenerations: 0`. These are the trial settings from
+[docs/ga-strategy-review.md](../../docs/ga-strategy-review.md): all three audited
+plateaued runs kept four copies of one genome in their four elite slots, their
+champions' complete one-output neighborhoods held no improvement, and a fixed
+per-locus rate silently rescales mutation size with the state count. They are
+experimental starting points, not measured winners; the review asks for
+controlled comparisons against the legacy operators, which remain available.
+
+Generation snapshots additionally report `distinctElites` (distinct genomes among
+the `eliteCount` fittest by rank, regardless of elitism policy, so under
+`"distinct"` it shows how often deduplication had to act), `bestCopies`
+(population members sharing the fittest genome) and `generationsSinceImprovement`
+(`generation − champion.birthGeneration`). `stallGenerations` (integer 0..1e9;
+absent or 0 means never) is validated here but acted on only by the server, which
+pauses a run once `generationsSinceImprovement` reaches it.
 
 The all-time strict-best champion is independent of the current population. Exact
 fitness ties preserve its identity; **zero elites may let generation best regress**.
@@ -306,6 +371,9 @@ Elites 0..population−1; tournament 2..min(32,population); mutation/crossover r
 training and 0..8 validation seeds; workers 1..13 (also bounded by server capacity); cache 0..8192; maxGenerations
 0..1e9; checkpoint seconds 2..300; snapshotEvery 1..10000; retainedSnapshots 2..128;
 nonblank name 1..80 characters; finite legacy weights 0..10 with positive sum.
+Optional `elitism` slots|distinct; `mutationPolicy` independent|heavyTailed with
+finite `mutationBeta` 1..4 required by, and only by, heavyTailed; `selection`
+lexicase needs at least 2 training seeds; `stallGenerations` integer 0..1e9.
 Composable incentive weights use 0..10,000 with at least one positive weight.
 
 Checkpoint validation checks model/schema, bounded array lengths before copying,
@@ -326,12 +394,19 @@ npm test -- src/research
 node --expose-gc scripts/benchmark-research.mjs
 ```
 
-Research suite: 103 tests, including 432 randomized golden objective/fixture
+Research suite: 327 tests, including 432 randomized golden objective/fixture
 comparisons, all default presets/objectives, 40 expansion/contraction trajectories,
 early extinction, all metrics, selection pressure, neutral diversity, held-out
 isolation, actual crossover/mutation traces, elite retention/regression, collision-
 proof cache keys, dedup accounting, abort rollback, out-of-order completion,
-JSON replay, malformed checkpoints and reproducible real-CA improvement.
+JSON replay, malformed checkpoints and reproducible real-CA improvement. The
+operator additions are covered by distinct-elite deduplication and fallback fill,
+the nextId invariant under every new option, heavy-tailed no-clone/sorted traces
+and an empirical change-count distribution against `heavyTailedWeights`, lexicase
+held-out isolation (identical genetics whether held-out agrees, disagrees or is
+absent) and a fixture specialist that tournament/rank on the mean never select,
+per-policy JSON replay, and a legacy sha256 golden that pins the pre-existing
+engine's exact continuation when the new keys are absent.
 
 Observed on this workspace, Node v22.23.2 / AMD EPYC (2026-09-06), five alternating
 measured rounds after warm-up, 64 deterministic mixed-density mutant candidates

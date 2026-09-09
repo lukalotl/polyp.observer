@@ -80,6 +80,8 @@ export async function researchFixture(
     error: null,
     stopReason: null,
     parentRunId: null,
+    generationsSinceImprovement: snapshot.metrics.generationsSinceImprovement,
+    distinctElites: snapshot.metrics.distinctElites,
   };
   const history = snapshots.map((value) => ({
     ...value.metrics,

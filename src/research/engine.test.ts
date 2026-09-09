@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_RUN_CONFIG } from "./config";
+import { DEFAULT_RUN_CONFIG, validateRunConfig } from "./config";
 import { evaluateGenome } from "./evaluate";
 import {
   advanceGeneration,
@@ -7,6 +7,7 @@ import {
   initializePopulation,
   validateEngineState,
 } from "./engine";
+import { heavyTailedWeights, mutationChangeDistribution } from "./mutation";
 import { genomeId, type Genome } from "../simulation";
 import type {
   BatchEvaluator,
@@ -68,6 +69,63 @@ const cheap: BatchEvaluator = async (genomes, cfg) =>
 const neutral: BatchEvaluator = async (genomes, cfg) =>
   genomes.map((genome) => synthetic(genome, cfg, true));
 const json = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+/** Genome-derived per-fixture scores: training fixture f rewards the share of
+ * unlocked loci holding state f + 1, scaled by f + 1 and clipped to one. So
+ * all-ones is a fixture-0 specialist ([1, 0], mean 0.5) while a 22/22 split of
+ * ones and twos scores [0.5, 1] and wins on the mean. Held-out scores are a
+ * function of the training scores (inverted by default). */
+const perFixture = (
+  heldOut: (training: number[]) => number[] = (scores) =>
+    scores.map((score) => 1 - score),
+): BatchEvaluator => {
+  const mean = (values: number[]) =>
+    values.reduce((a, b) => a + b, 0) / values.length;
+  return async (genomes, cfg) =>
+    genomes.map((genome) => {
+      const share = (state: number) =>
+        genome.slice(1).filter((g) => g === state).length /
+        (genome.length - 1);
+      const trainingScores = cfg.trainingSeeds.map((_, f) =>
+        Math.min(1, (f + 1) * share(f + 1)),
+      );
+      const held = heldOut(trainingScores);
+      const validationScores = cfg.validationSeeds.map(
+        (_, f) => held[f % held.length],
+      );
+      return {
+        ...synthetic(genome, cfg),
+        fitness: mean(trainingScores),
+        validationFitness: validationScores.length
+          ? mean(validationScores)
+          : null,
+        trainingScores,
+        validationScores,
+      };
+    });
+};
+/** A valid generation-zero state whose parentless individuals carry the given
+ * genomes and their evaluations, in population order. */
+async function planted(
+  cfg: RunConfig,
+  genomes: Genome[],
+  evaluate: BatchEvaluator,
+): Promise<EngineState> {
+  const state = await initializePopulation(cfg, evaluate);
+  const results = await evaluate(
+    genomes.map((genome) => genome.slice()),
+    cfg,
+  );
+  state.population.forEach((item, i) =>
+    Object.assign(item, { genome: genomes[i].slice() }, results[i]),
+  );
+  state.champion = json(
+    state.population.reduce((best, item) =>
+      item.fitness > best.fitness ? item : best,
+    ),
+  );
+  state.cache = [];
+  return validateEngineState(state);
+}
 async function generations(
   state: EngineState,
   count: number,
@@ -459,6 +517,317 @@ describe("selection, neutral diversity, validation and scientific metrics", () =
       ),
     ).toEqual(end);
   });
+});
+
+describe("breeding-diversity operators: distinct elitism, heavy-tailed mutation, lexicase", () => {
+  const A = [0, ...Array(44).fill(4)],
+    B = [0, ...Array(44).fill(3)],
+    C = [0, ...Array(44).fill(2)];
+  const filler = Array.from({ length: 10 }, (_, j) => [
+    0,
+    ...Array(j + 1).fill(1),
+    ...Array(43 - j).fill(0),
+  ]);
+  it("keeps the fittest individual per genome as an elite, byte-for-byte, and fills scarce distinct genomes with the next-best duplicates", async () => {
+    const cfg = config({
+      initialization: "random",
+      eliteCount: 3,
+      elitism: "distinct",
+      crossover: "none",
+      mutationRate: 0,
+    });
+    const prior = await planted(cfg, [A, A, A, B, A, C, ...filler], cheap);
+    expect(generationSnapshot(prior).metrics).toMatchObject({
+      distinctElites: 1,
+      bestCopies: 4,
+      uniqueGenomes: 13,
+    });
+    const next = await advanceGeneration(prior, cheap);
+    expect(next.population.slice(0, 3)).toEqual([
+      prior.population[0],
+      prior.population[3],
+      prior.population[5],
+    ]);
+    expect(next.population).toHaveLength(16);
+    expect(next.nextId).toBe(1 + 16 + (16 - 3));
+    expect(validateEngineState(json(next))).toEqual(next);
+    const slots = await advanceGeneration(
+      { ...prior, config: { ...prior.config, elitism: "slots" } },
+      cheap,
+    );
+    expect(slots.population.slice(0, 3)).toEqual(prior.population.slice(0, 3));
+    const scarce = await planted(cfg, [...Array(15).fill(A), B], cheap);
+    const filled = await advanceGeneration(scarce, cheap);
+    expect(filled.population.slice(0, 3)).toEqual([
+      scarce.population[0],
+      scarce.population[1],
+      scarce.population[15],
+    ]);
+    expect(filled.population).toHaveLength(16);
+    expect(filled.nextId).toBe(1 + 16 + (16 - 3));
+    expect(validateEngineState(json(filled))).toEqual(filled);
+    const uniform = await planted(cfg, Array(16).fill(A), cheap);
+    expect(
+      (await advanceGeneration(uniform, cheap)).population.slice(0, 3),
+    ).toEqual(uniform.population.slice(0, 3));
+  });
+  it("replays legacy configurations exactly and matches explicit slots/independent, and distinct elitism whenever the fittest are already distinct", async () => {
+    const base = config({
+      initialization: "random",
+      immigrantRate: 0.25,
+      crossoverRate: 1,
+      mutationRate: 0.3,
+    });
+    expect(base).not.toHaveProperty("elitism");
+    expect(base).not.toHaveProperty("mutationPolicy");
+    const absent = await generations(
+      await initializePopulation(base, cheap),
+      3,
+    );
+    expect(absent.config).not.toHaveProperty("elitism");
+    expect(absent.config).not.toHaveProperty("mutationPolicy");
+    const explicit = await generations(
+      await initializePopulation(
+        { ...base, elitism: "slots", mutationPolicy: "independent" },
+        cheap,
+      ),
+      3,
+    );
+    expect({ ...explicit, config: base }).toEqual(absent);
+    const distinct = await generations(
+      await initializePopulation({ ...base, elitism: "distinct" }, cheap),
+      3,
+    );
+    expect({ ...distinct, config: base }).toEqual(absent);
+    expect(generationSnapshot(absent).metrics.distinctElites).toBe(2);
+  });
+  it("heavy-tailed mutation always changes at least one locus, so one-parent children are never clones", async () => {
+    const cfg = config({
+      mutationPolicy: "heavyTailed",
+      mutationBeta: 1.5,
+      mutationRate: 0,
+      eliteCount: 0,
+      crossover: "none",
+    });
+    const mutants = await initializePopulation(cfg, cheap);
+    expect(mutants.population[0].origin).toBe("founder");
+    for (const child of mutants.population.slice(1)) {
+      expect(child.origin).toBe("mutant");
+      expect(child.parents[0].id).toBe("i1");
+      expect(child.mutatedLoci.length).toBeGreaterThanOrEqual(1);
+      expect(child.mutatedLoci.length).toBeLessThanOrEqual(22);
+      expect(child.mutatedLoci).toEqual(
+        [...new Set(child.mutatedLoci)].sort((a, b) => a - b),
+      );
+    }
+    trace(mutants);
+    expect(validateEngineState(json(mutants))).toEqual(mutants);
+    const next = await advanceGeneration(mutants, cheap);
+    expect(
+      next.population.every(
+        (item) => item.origin === "mutant" && item.mutatedLoci.length >= 1,
+      ),
+    ).toBe(true);
+    trace(next);
+    expect(validateEngineState(json(next))).toEqual(next);
+    const crossed = await advanceGeneration(
+      await initializePopulation(
+        { ...cfg, crossover: "uniform", crossoverRate: 1 },
+        cheap,
+      ),
+      cheap,
+    );
+    expect(
+      crossed.population.every(
+        (item) =>
+          item.origin === "crossover" &&
+          item.parents.length === 2 &&
+          item.mutatedLoci.length >= 1,
+      ),
+    ).toBe(true);
+    trace(crossed);
+  });
+  it.each([
+    { stateCount: 5, mutationBeta: 1.5 },
+    { stateCount: 2, mutationBeta: 2.5 },
+  ])(
+    "draws heavy-tailed change counts distributed as heavyTailedWeights: %j",
+    async ({ stateCount, mutationBeta }) => {
+      const cfg = config({
+        stateCount,
+        seedGenome: Array(9 * stateCount).fill(0),
+        initialization: "random",
+        populationSize: 512,
+        eliteCount: 0,
+        crossover: "none",
+        cacheSize: 0,
+        mutationPolicy: "heavyTailed",
+        mutationBeta,
+      });
+      let state = await initializePopulation(cfg, neutral);
+      const counts = new Map<number, number>();
+      let total = 0;
+      for (let g = 0; g < 20; g++) {
+        state = await advanceGeneration(state, neutral);
+        for (const child of state.population) {
+          const k = child.mutatedLoci.length;
+          counts.set(k, (counts.get(k) ?? 0) + 1);
+          total++;
+        }
+      }
+      const weights = heavyTailedWeights(stateCount, mutationBeta);
+      expect(counts.has(0)).toBe(false);
+      expect(Math.max(...counts.keys())).toBeLessThanOrEqual(weights.length);
+      weights.forEach((p, i) => {
+        const observed = (counts.get(i + 1) ?? 0) / total;
+        expect(Math.abs(observed - p)).toBeLessThanOrEqual(
+          4 * Math.sqrt((p * (1 - p)) / total) + 1 / total,
+        );
+      });
+      const expected = mutationChangeDistribution(cfg);
+      const variance = expected.probabilities.reduce(
+        (sum, p, k) => sum + p * (k - expected.mean) ** 2,
+        0,
+      );
+      const mean =
+        [...counts].reduce((sum, [k, n]) => sum + k * n, 0) / total;
+      expect(Math.abs(mean - expected.mean)).toBeLessThanOrEqual(
+        4 * Math.sqrt(variance / total),
+      );
+    },
+  );
+  it("lexicase selects on per-fixture training scores only, even when held-out scores would flip every choice", async () => {
+    const specialist = [0, ...Array(44).fill(1)];
+    const other = [0, ...Array(44).fill(3)];
+    const genomes = [specialist, ...Array(15).fill(other)];
+    const cfg = config({
+      initialization: "random",
+      selection: "lexicase",
+      trainingSeeds: [1, 2],
+      validationSeeds: [3, 4],
+      eliteCount: 0,
+      crossover: "none",
+      mutationRate: 0,
+    });
+    const inverted = perFixture();
+    const prior = await planted(cfg, genomes, inverted);
+    expect(prior.population[0].trainingScores).toEqual([1, 0]);
+    expect(prior.population[1].trainingScores).toEqual([0, 0]);
+    expect(prior.population[0].validationFitness).toBeLessThan(
+      prior.population[1].validationFitness!,
+    );
+    const next = await advanceGeneration(prior, inverted);
+    expect(
+      next.population.every(
+        (child) =>
+          child.parents.length === 1 &&
+          child.parents[0].id === prior.population[0].id,
+      ),
+    ).toBe(true);
+    const aligned = perFixture((scores) => scores);
+    const agreeing = await advanceGeneration(
+      await planted(cfg, genomes, aligned),
+      aligned,
+    );
+    const heldOutFree = await advanceGeneration(
+      await planted({ ...cfg, validationSeeds: [] }, genomes, inverted),
+      inverted,
+    );
+    const genetics = (state: EngineState) => ({
+      rngState: state.rngState,
+      population: state.population.map((item) => [
+        item.id,
+        item.genome,
+        item.parents.map((parent) => parent.id),
+        item.trainingScores,
+      ]),
+    });
+    expect(genetics(agreeing)).toEqual(genetics(next));
+    expect(genetics(heldOutFree)).toEqual(genetics(next));
+  });
+  it("lexicase gives a fixture specialist the parentage that tournament and rank on the mean deny it", async () => {
+    const specialist = [0, ...Array(44).fill(1)];
+    const generalist = [0, ...Array(22).fill(1), ...Array(22).fill(2)];
+    const genomes = [specialist, ...Array(15).fill(generalist)];
+    const evaluate = perFixture();
+    const base = config({
+      initialization: "random",
+      trainingSeeds: [1, 2],
+      eliteCount: 0,
+      crossover: "none",
+      mutationRate: 0,
+    });
+    const specialistChildren = async (selection: RunConfig["selection"]) => {
+      const prior = await planted({ ...base, selection }, genomes, evaluate);
+      expect(prior.population[0].fitness).toBe(0.5);
+      expect(prior.population[1].fitness).toBe(0.75);
+      const next = await advanceGeneration(prior, evaluate);
+      return next.population.filter(
+        (child) => child.parents[0].id === prior.population[0].id,
+      ).length;
+    };
+    // Whichever fixture is shuffled first decides: half of all lexicase
+    // selections keep only the specialist; on the mean it always loses.
+    const lexicase = await specialistChildren("lexicase");
+    expect(lexicase).toBeGreaterThanOrEqual(4);
+    expect(await specialistChildren("tournament")).toBe(0);
+    expect(await specialistChildren("rank")).toBeLessThan(lexicase);
+  });
+  it("rejects lexicase with a single training fixture", async () => {
+    await expect(
+      initializePopulation(config({ selection: "lexicase" }), cheap),
+    ).rejects.toThrow(/at least 2 training seeds/);
+    expect(() =>
+      validateRunConfig(config({ selection: "lexicase", trainingSeeds: [1, 2] })),
+    ).not.toThrow();
+  });
+  it.each([
+    { elitism: "distinct" },
+    { mutationPolicy: "heavyTailed", mutationBeta: 1.5 },
+    { selection: "lexicase", trainingSeeds: [1, 2, 3] },
+    { stallGenerations: 5 },
+    {
+      elitism: "distinct",
+      mutationPolicy: "heavyTailed",
+      mutationBeta: 2,
+      selection: "lexicase",
+      trainingSeeds: [1, 2],
+      validationSeeds: [9],
+      stallGenerations: 3,
+      eliteCount: 3,
+    },
+  ] as Partial<RunConfig>[])(
+    "replays exact JSON checkpoints and keeps the nextId invariant under %j",
+    async (options) => {
+      const cfg = config({
+        initialization: "random",
+        immigrantRate: 0.25,
+        cacheSize: 7,
+        ...options,
+      });
+      const slots = cfg.populationSize - cfg.eliteCount;
+      const checkpoint = await generations(
+        await initializePopulation(cfg, cheap),
+        3,
+      );
+      expect(checkpoint.nextId).toBe(1 + cfg.populationSize + 3 * slots);
+      expect(validateEngineState(json(checkpoint))).toEqual(checkpoint);
+      const uninterrupted = await generations(checkpoint, 3);
+      const restored = await generations(
+        validateEngineState(json(checkpoint)),
+        3,
+      );
+      expect(JSON.stringify(restored)).toBe(JSON.stringify(uninterrupted));
+      expect(restored.nextId).toBe(1 + cfg.populationSize + 6 * slots);
+      expect(validateEngineState(json(restored))).toEqual(restored);
+      const metrics = generationSnapshot(restored).metrics;
+      expect(metrics.generationsSinceImprovement).toBe(
+        restored.generation - restored.champion.birthGeneration,
+      );
+      expect(metrics.distinctElites).toBeLessThanOrEqual(cfg.eliteCount);
+      expect(metrics.bestCopies).toBeGreaterThanOrEqual(1);
+    },
+  );
 });
 
 describe("deterministic batch LRU, exact accounting and transactional replay", () => {

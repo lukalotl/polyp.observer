@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { PRESETS } from "../simulation";
-import { DEFAULT_RUN_CONFIG, validateRunConfig } from "./config";
+import {
+  DEFAULT_RUN_CONFIG,
+  migrateLegacyRunConfig,
+  validateRunConfig,
+} from "./config";
+import { LEGACY_MODEL_VERSION, PREVIOUS_MODEL_VERSION } from "./types";
 import {
   MAX_GRID_SIZE,
   MAX_CA_STEPS,
@@ -114,6 +119,21 @@ describe("pinned, bounded research configuration", () => {
     { initialization: "winner" },
     { randomRuleBias: "dense" },
     { randomRuleBias: undefined },
+    { elitism: "top" },
+    { elitism: undefined },
+    { mutationPolicy: "gaussian" },
+    { mutationPolicy: undefined },
+    { mutationPolicy: "independent" },
+    { mutationBeta: 0.99 },
+    { mutationBeta: 4.01 },
+    { mutationBeta: NaN },
+    { mutationBeta: "1.5" },
+    { mutationBeta: undefined },
+    { stallGenerations: -1 },
+    { stallGenerations: 1.5 },
+    { stallGenerations: 1_000_000_001 },
+    { stallGenerations: undefined },
+    { selection: "lexicase" },
     { selection: "random" },
     { crossover: "twoPoint" },
     { seed: "soup" },
@@ -181,6 +201,104 @@ describe("pinned, bounded research configuration", () => {
         cacheSize: 0,
       }),
     ).toBeDefined();
+  });
+  it("requires mutationBeta exactly when the policy is heavy-tailed", () => {
+    const { mutationBeta: _beta, ...withoutBeta } = DEFAULT_RUN_CONFIG;
+    const { mutationPolicy: _policy, ...withoutPolicy } = DEFAULT_RUN_CONFIG;
+    expect(() => validateRunConfig(withoutBeta)).toThrow(
+      /Mutation beta is required/,
+    );
+    expect(() => validateRunConfig(withoutPolicy)).toThrow(
+      /applies only to heavy-tailed/,
+    );
+    expect(() =>
+      validateRunConfig({ ...DEFAULT_RUN_CONFIG, mutationPolicy: "independent" }),
+    ).toThrow(/applies only to heavy-tailed/);
+    expect(
+      validateRunConfig({ ...withoutBeta, mutationPolicy: "independent" }),
+    ).toMatchObject({ mutationPolicy: "independent", mutationRate: 0.034 });
+    expect(
+      validateRunConfig({ ...withoutBeta, mutationPolicy: "independent" }),
+    ).not.toHaveProperty("mutationBeta");
+    for (const mutationBeta of [1, 1.5, 4])
+      expect(
+        validateRunConfig({ ...DEFAULT_RUN_CONFIG, mutationBeta }).mutationBeta,
+      ).toBe(mutationBeta);
+  });
+  it("accepts each new optional field within its documented range", () => {
+    for (const elitism of ["slots", "distinct"] as const)
+      expect(validateRunConfig({ ...DEFAULT_RUN_CONFIG, elitism }).elitism).toBe(
+        elitism,
+      );
+    for (const stallGenerations of [0, 5, 1_000_000_000])
+      expect(
+        validateRunConfig({ ...DEFAULT_RUN_CONFIG, stallGenerations })
+          .stallGenerations,
+      ).toBe(stallGenerations);
+    expect(
+      validateRunConfig({
+        ...DEFAULT_RUN_CONFIG,
+        selection: "lexicase",
+        trainingSeeds: [1, 2],
+      }).selection,
+    ).toBe("lexicase");
+  });
+  it("rejects lexicase selection with one training fixture and explains why", () => {
+    expect(() =>
+      validateRunConfig({ ...DEFAULT_RUN_CONFIG, selection: "lexicase" }),
+    ).toThrow(/Lexicase selection needs at least 2 training seeds/);
+    expect(() =>
+      validateRunConfig({
+        ...DEFAULT_RUN_CONFIG,
+        selection: "lexicase",
+        trainingSeeds: [1, 2],
+        validationSeeds: [3],
+      }),
+    ).not.toThrow();
+  });
+  it("validates and migrates saved configurations that predate the operator keys, leaving them absent", () => {
+    const legacy = {
+      ...DEFAULT_RUN_CONFIG,
+      eliteCount: 4,
+      tournamentSize: 4,
+      mutationRate: 0.03,
+    };
+    delete legacy.elitism;
+    delete legacy.mutationPolicy;
+    delete legacy.mutationBeta;
+    delete legacy.stallGenerations;
+    const validated = validateRunConfig(legacy);
+    expect(validated).toEqual(legacy);
+    for (const key of [
+      "elitism",
+      "mutationPolicy",
+      "mutationBeta",
+      "stallGenerations",
+    ])
+      expect(validated).not.toHaveProperty(key);
+    expect(Object.keys(validated).sort()).toEqual(Object.keys(legacy).sort());
+    const { boundaryPolicy: _boundary, stateCount: _states, ...v1 } = legacy;
+    const migrated = migrateLegacyRunConfig(v1, LEGACY_MODEL_VERSION);
+    expect(migrated).toEqual({
+      ...legacy,
+      stateCount: 5,
+      boundaryPolicy: { spatial: false, horizon: false },
+    });
+    expect(migrated).not.toHaveProperty("mutationPolicy");
+    const { boundaryPolicy: _policy, ...v2 } = legacy;
+    expect(migrateLegacyRunConfig(v2, PREVIOUS_MODEL_VERSION)).toEqual({
+      ...legacy,
+      boundaryPolicy: { spatial: false, horizon: false },
+    });
+    expect(
+      migrateLegacyRunConfig(
+        { ...v2, elitism: "distinct", stallGenerations: 7 },
+        PREVIOUS_MODEL_VERSION,
+      ),
+    ).toMatchObject({ elitism: "distinct", stallGenerations: 7 });
+    expect(() =>
+      migrateLegacyRunConfig({ ...v2, elitism: "top" }, PREVIOUS_MODEL_VERSION),
+    ).toThrow(RangeError);
   });
   it("admits deep and wide experiments, with a separate per-fixture work ceiling", () => {
     for (const { size, steps } of [
