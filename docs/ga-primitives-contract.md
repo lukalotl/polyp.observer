@@ -55,10 +55,14 @@ Semantics
   are exhausted; return a uniform random remaining individual (`random.index`). Requires
   `trainingSeeds.length >= 2`; `validateRunConfig` rejects lexicase with one fixture.
   Held-out scores are never consulted.
-- **stallGenerations**: server-side only. After a generation commits, if
-  `stallGenerations > 0` and `metrics.generationsSinceImprovement >= stallGenerations`, the
-  run is paused (status `"paused"`, `stopReason` `"Stalled: N generations without improvement."`).
-  Start resumes it and clears the reason. It is not `"completed"`.
+- **stallGenerations**: server-side only, continuous run mode only (never on a single
+  step). After a generation commits, if `stallGenerations > 0`,
+  `metrics.generationsSinceImprovement > 0` and
+  `generationsSinceImprovement % stallGenerations === 0`, the run is paused (status
+  `"paused"`, `stopReason` `"Stalled: N generations without improvement."`). The modulo rule
+  means a resumed run continues for another full window instead of re-pausing on its next
+  generation. Start resumes it and clears the reason. It is not `"completed"`; a coinciding
+  generation limit wins and completes the run.
 
 ## Metrics and summary
 
