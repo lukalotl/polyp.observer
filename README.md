@@ -95,9 +95,11 @@ The public website uses Vercel plus a persistent VM backend. See
   against the server cap, generation limit, **Stall pause**, **Independent
   repeats** and a collapsible Details group for checkpoints, retention, cache
   and restart recovery. The JSON editor remains available and round-trips every
-  field. New drafts default to two distinct elites, tournaments of two and
-  heavy-tailed mutation with beta 1.5 (about 3.7 changes per child); saved runs
-  keep their recorded operators.
+  field. New drafts default to a population of 64, two distinct elites,
+  tournaments of two and heavy-tailed mutation with beta 1.5 (about 3.7 changes
+  per child), keep uniform crossover for 70% of children and 5% immigrants (3 per
+  generation at 64), and set no stall pause; saved runs keep their recorded
+  operators.
 - **Search seeds and repeats**: every time the creator opens (new run, fork or
   variant) it draws a fresh recorded search seed, so a new run is an independent
   search rather than a silent replay of 1729. Forks and variants show the source

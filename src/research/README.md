@@ -303,7 +303,10 @@ New drafts (`DEFAULT_RUN_CONFIG`) use `elitism: "distinct"`, `eliteCount: 2`,
 `tournamentSize: 2`, `mutationPolicy: "heavyTailed"`, `mutationBeta: 1.5` (about
 3.7 changes per child for five states, 46% single changes) and
 `mutationRate: 0.034` (≈ 1.5 changes across 44 loci if a draft switches back to
-`"independent"`), with `stallGenerations: 0`. These are the trial settings from
+`"independent"`), with `stallGenerations: 0`. `populationSize: 64`, uniform
+crossover at `crossoverRate: 0.7` and `immigrantRate: 0.05` (3 immigrants per
+generation at 64) are unchanged; the UI replaces the stored `randomSeed: 1729` with
+a fresh recorded seed every time the creator opens. These are the trial settings from
 [docs/ga-strategy-review.md](../../docs/ga-strategy-review.md): all three audited
 plateaued runs kept four copies of one genome in their four elite slots, their
 champions' complete one-output neighborhoods held no improvement, and a fixed
@@ -317,7 +320,9 @@ the `eliteCount` fittest by rank, regardless of elitism policy, so under
 (population members sharing the fittest genome) and `generationsSinceImprovement`
 (`generation − champion.birthGeneration`). `stallGenerations` (integer 0..1e9;
 absent or 0 means never) is validated here but acted on only by the server, which
-pauses a run once `generationsSinceImprovement` reaches it.
+pauses a continuous run whenever `generationsSinceImprovement` is a positive whole
+multiple of it (never on a single step), so a resumed run gets another full window
+before it can pause again; a coinciding generation limit completes the run instead.
 
 The all-time strict-best champion is independent of the current population. Exact
 fitness ties preserve its identity; **zero elites may let generation best regress**.
