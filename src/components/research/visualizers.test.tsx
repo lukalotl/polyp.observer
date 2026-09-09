@@ -48,6 +48,7 @@ function member(index: number): Individual {
 function historyPoint(
   generation: number,
   validationBest: number | null = null,
+  extra: Partial<HistoryPoint> = {},
 ): HistoryPoint {
   return {
     generation,
@@ -61,9 +62,13 @@ function historyPoint(
     uniqueGenomes: 1,
     evaluations: 1,
     cacheHits: 0,
+    distinctElites: 1,
+    bestCopies: 1,
+    generationsSinceImprovement: 0,
     elapsedMs: 0,
     generationMs: 0,
     evalsPerSecond: 0,
+    ...extra,
   };
 }
 function snapshot(count: number): GenerationSnapshot {
@@ -194,6 +199,65 @@ describe("population research panel", () => {
       "title",
       "Current state 4; 8 active neighbors → output 0",
     );
+  });
+  it("draws one bar per training score and emphasizes training-minus-held-out gaps above 0.1", () => {
+    const state = snapshot(3);
+    state.population[0] = {
+      ...state.population[0],
+      fitness: 0.8,
+      validationFitness: 0.5,
+      trainingScores: [0.9, 0.7, 0.8],
+      fixturePasses: { training: [true, true, false], validation: [true] },
+    };
+    state.population[1] = {
+      ...state.population[1],
+      fitness: 0.6,
+      validationFitness: 0.55,
+      trainingScores: [0.6],
+    };
+    state.population[2] = {
+      ...state.population[2],
+      fitness: 0.4,
+      validationFitness: null,
+      trainingScores: [],
+    };
+    const { container } = render(
+      <PopulationView snapshot={state} selectedId={null} onSelect={() => {}} />,
+    );
+    expect(
+      screen.getByRole("table", {
+        name: "Population ranked by training fitness",
+      }),
+    ).toBeInTheDocument();
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows[0].querySelectorAll(".rv-score-bar")).toHaveLength(3);
+    expect(rows[1].querySelectorAll(".rv-score-bar")).toHaveLength(1);
+    expect(rows[2].querySelectorAll(".rv-score-bar")).toHaveLength(0);
+    expect(
+      within(rows[0]).getByRole("img", {
+        name: "Training scores 0.9000, 0.7000, 0.8000",
+      }),
+    ).toBeInTheDocument();
+    const failed = screen.getByTitle(
+      "Training fixture 3: 0.8000 (disqualified)",
+    );
+    expect(failed).toHaveClass("rv-score-bar", "rv-score-bar-failed");
+    expect(screen.getByTitle("Training fixture 1: 0.9000")).not.toHaveClass(
+      "rv-score-bar-failed",
+    );
+    const wide = screen.getByText("+0.3000");
+    expect(wide).toHaveClass("rv-gap", "rv-gap-wide");
+    expect(wide).toHaveAttribute("title", expect.stringContaining("above 0.1"));
+    const narrow = screen.getByText("+0.0500");
+    expect(narrow).toHaveClass("rv-gap");
+    expect(narrow).not.toHaveClass("rv-gap-wide");
+    expect(
+      within(rows[2]).getByTitle("No held-out evaluation to compare against"),
+    ).toHaveTextContent("—");
+    expect(
+      within(rows[2]).getByTitle("No per-fixture training scores recorded"),
+    ).toHaveTextContent("—");
+    expect(container.textContent).not.toContain("NaN");
   });
 });
 
@@ -336,5 +400,113 @@ describe("fitness history panel", () => {
         screen.getByRole("combobox", { name: "Retained generation" }),
       ).getAllByRole("option"),
     ).toHaveLength(3);
+  });
+  it("offers repeat share and distinct elites as opt-in normalized series that skip unrecorded points", () => {
+    const history = [
+      historyPoint(0, null, {
+        generationEvaluations: 60,
+        generationRepeats: 4,
+        distinctElites: 2,
+      }),
+      historyPoint(1, null, {
+        generationEvaluations: 50,
+        generationRepeats: 14,
+        distinctElites: 2,
+      }),
+      historyPoint(2, null, { distinctElites: 3 }),
+      historyPoint(3, null, {
+        generationEvaluations: 40,
+        generationRepeats: 24,
+        distinctElites: 4,
+        bestCopies: 5,
+        generationsSinceImprovement: 7,
+      }),
+    ];
+    const { container } = render(
+      <HistoryView
+        history={history}
+        snapshots={[]}
+        selectedGeneration={null}
+        onSelectGeneration={() => {}}
+        eliteCount={4}
+        populationSize={64}
+      />,
+    );
+    const repeatToggle = screen.getByRole("checkbox", { name: "Repeat share" });
+    const eliteToggle = screen.getByRole("checkbox", {
+      name: "Distinct elites",
+    });
+    expect(repeatToggle).not.toBeChecked();
+    expect(eliteToggle).not.toBeChecked();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(8);
+    expect(
+      container.querySelector('[data-series="repeatShare"]'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/\(right, 0–1\)/)).not.toBeInTheDocument();
+    fireEvent.click(repeatToggle);
+    const repeatSeries = container.querySelector('[data-series="repeatShare"]')!;
+    expect(repeatSeries.querySelectorAll("polyline")).toHaveLength(1);
+    expect(repeatSeries.querySelectorAll("circle")).toHaveLength(1);
+    expect(
+      repeatSeries.querySelector("polyline")!.getAttribute("points")!.split(" "),
+    ).toHaveLength(2);
+    expect(screen.getByText("Repeat share (right, 0–1)")).toBeInTheDocument();
+    fireEvent.click(eliteToggle);
+    const eliteLine = container.querySelector(
+      '[data-series="distinctElites"] polyline',
+    )!;
+    const ys = eliteLine
+      .getAttribute("points")!
+      .split(" ")
+      .map((pair) => Number(pair.split(",")[1]));
+    // Default 800×320 chart: the right axis spans y=284 (0) to y=20 (1); 2/4, 2/4, 3/4, 4/4.
+    expect(ys[0]).toBeCloseTo(152, 1);
+    expect(ys[1]).toBeCloseTo(152, 1);
+    expect(ys[2]).toBeCloseTo(86, 1);
+    expect(ys[3]).toBeCloseTo(20, 1);
+    expect(
+      screen.getByText("Repeat share · Distinct elites (right, 0–1)"),
+    ).toBeInTheDocument();
+    const readout = container.querySelector(".rv-chart-readout")!;
+    expect(readout).toHaveTextContent("Repeat share 37.5%");
+    expect(readout).toHaveTextContent("Distinct elites 4 / 4");
+    const chart = screen.getByRole("img", { name: /Fitness by GA generation/ });
+    fireEvent.keyDown(chart, { key: "ArrowLeft" });
+    expect(readout).toHaveTextContent("Generation 2");
+    expect(readout).toHaveTextContent("Repeat share —");
+    expect(readout).toHaveTextContent("Distinct elites 3 / 4");
+    const health = screen.getByRole("region", { name: "Search health" });
+    expect(health).toHaveTextContent("Since improvement 7 gen");
+    expect(health).toHaveTextContent("Distinct elites 4 / 4");
+    expect(health).toHaveTextContent("Best copies 5 / 64");
+    expect(health).toHaveTextContent("Unique evaluations 40");
+    expect(health).toHaveTextContent("Repeat share 37.5%");
+    expect(container.textContent).not.toContain("NaN");
+  });
+  it("keeps the search-health strip present without history or optional counts", () => {
+    const { rerender } = render(
+      <HistoryView
+        history={[]}
+        snapshots={[]}
+        selectedGeneration={null}
+        onSelectGeneration={() => {}}
+      />,
+    );
+    const health = screen.getByRole("region", { name: "Search health" });
+    expect(health).toHaveTextContent("Since improvement —");
+    expect(health.textContent).not.toContain("NaN");
+    rerender(
+      <HistoryView
+        history={[historyPoint(4, null, { distinctElites: 2, bestCopies: 3 })]}
+        snapshots={[]}
+        selectedGeneration={null}
+        onSelectGeneration={() => {}}
+      />,
+    );
+    expect(health).toHaveTextContent("Distinct elites 2");
+    expect(health).not.toHaveTextContent("Distinct elites 2 /");
+    expect(health).toHaveTextContent("Best copies 3");
+    expect(health).toHaveTextContent("Unique evaluations not recorded");
+    expect(health).toHaveTextContent("Repeat share not recorded");
   });
 });

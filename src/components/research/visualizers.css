@@ -4,6 +4,7 @@
   --rv-state2: #e5c995;
   --rv-state3: #90a98e;
   --rv-state4: #8da5a1;
+  --rv-amber: #e8a04a;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -81,7 +82,7 @@
 }
 .rv-population-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 880px;
   border-collapse: collapse;
   text-align: left;
   font-variant-numeric: tabular-nums;
@@ -448,13 +449,74 @@
   margin: 5px 0 0;
   max-width: none;
 }
+/* Search-health strip: one line of labeled figures; values wear text ink, labels muted. */
+.rv-search-health {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 18px;
+  padding: 9px 12px 0;
+  flex: none;
+  font-size: 10px;
+  color: var(--muted, #8da5a1);
+  font-variant-numeric: tabular-nums;
+}
+.rv-health-item {
+  white-space: nowrap;
+  cursor: help;
+}
+.rv-health-item b {
+  font-weight: 400;
+  color: var(--text, #c1c7cc);
+}
+.rv-health-unrecorded b {
+  color: var(--muted, #8da5a1);
+  font-style: italic;
+}
+/* Training-minus-held-out gap; amber only supplements the signed figure and its title. */
+.rv-gap {
+  font-variant-numeric: tabular-nums;
+}
+.rv-gap-wide {
+  color: var(--rv-amber, #e8a04a);
+}
+/* Per-fixture training scores: thin baseline-anchored bars with a 2px surface gap. */
+.rv-score-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 15px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--line, #1c2733);
+}
+.rv-score-bar {
+  display: block;
+  width: 5px;
+  height: max(1px, calc(var(--score, 0) * 14px));
+  background: var(--gold, #e5c995);
+  border-radius: 1px 1px 0 0;
+  transition: height 0.15s;
+}
+.rv-score-bar-failed {
+  background: var(--coral, #df6c7c);
+  opacity: 0.75;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv-score-bar {
+    transition: none;
+  }
+}
 @media (max-width: 650px) {
   .rv-toolbar {
     padding: 8px;
     gap: 8px;
   }
   .rv-population-table {
-    min-width: 710px;
+    min-width: 830px;
+  }
+  .rv-search-health {
+    padding: 8px 8px 0;
+    gap: 3px 12px;
   }
   .rv-history-toolbar {
     gap: 10px;

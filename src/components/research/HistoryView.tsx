@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { HistoryPoint, SnapshotRef } from "../../research/types";
 import {
-  formatFitness,
+  distinctEliteScale,
+  historyReadout,
   historySegments,
+  historyValue,
   nearestGeneration,
+  UNIT_METRICS,
   type HistoryMetric,
+  type HistoryScale,
 } from "./visualizerData";
+import SearchHealth from "./SearchHealth";
 import "./visualizers.css";
 
-export interface HistoryViewProps {
+export interface HistoryViewProps extends HistoryScale {
   history: HistoryPoint[];
   snapshots: SnapshotRef[];
   selectedGeneration: number | null;
@@ -17,6 +22,8 @@ export interface HistoryViewProps {
 const SERIES: {
   key: HistoryMetric;
   label: string;
+  /** Short name for the shared right-hand axis title. */
+  axis?: string;
   color: string;
   dash?: string;
 }[] = [
@@ -30,7 +37,27 @@ const SERIES: {
     color: "#df6c7c",
     dash: "5 3",
   },
-  { key: "diversity", label: "Allele entropy", color: "#baa2cf", dash: "2 4" },
+  {
+    key: "diversity",
+    label: "Allele entropy",
+    axis: "Entropy",
+    color: "#baa2cf",
+    dash: "2 4",
+  },
+  {
+    key: "repeatShare",
+    label: "Repeat share",
+    axis: "Repeat share",
+    color: "#e8a04a",
+    dash: "7 3",
+  },
+  {
+    key: "distinctElites",
+    label: "Distinct elites",
+    axis: "Distinct elites",
+    color: "#e8eef3",
+    dash: "1 3",
+  },
 ];
 function useChartSize() {
   const ref = useRef<HTMLDivElement>(null);
@@ -55,6 +82,8 @@ export default function HistoryView({
   snapshots,
   selectedGeneration,
   onSelectGeneration,
+  eliteCount,
+  populationSize,
 }: HistoryViewProps) {
   const [visible, setVisible] = useState<Set<HistoryMetric>>(
     () => new Set(["bestEver", "best", "mean", "worst", "validationBest"]),
@@ -64,6 +93,14 @@ export default function HistoryView({
   const points = useMemo(
     () => [...history].sort((a, b) => a.generation - b.generation),
     [history],
+  );
+  const scale = useMemo<HistoryScale>(
+    () => ({ eliteCount, populationSize }),
+    [eliteCount, populationSize],
+  );
+  const eliteScale = useMemo(
+    () => distinctEliteScale(points, scale),
+    [points, scale],
   );
   const available = useMemo(
     () =>
@@ -77,11 +114,13 @@ export default function HistoryView({
       new Map(
         SERIES.map((series) => [
           series.key,
-          historySegments(points, series.key),
+          historySegments(points, series.key, eliteScale),
         ]),
       ),
-    [points],
+    [points, eliteScale],
   );
+  const valueOf = (point: HistoryPoint, metric: HistoryMetric) =>
+    historyValue(point, metric, eliteScale);
   const first = points[0]?.generation ?? 0,
     last = points.at(-1)?.generation ?? 1;
   const xMin = points.length === 1 ? Math.max(0, first - 1) : first;
@@ -90,12 +129,12 @@ export default function HistoryView({
     let minimum = 0,
       maximum = 0;
     const active = SERIES.filter(
-      (series) => visible.has(series.key) && series.key !== "diversity",
+      (series) => visible.has(series.key) && !UNIT_METRICS.has(series.key),
     );
     for (const point of points)
       for (const series of active) {
-        const value = point[series.key];
-        if (value !== null && Number.isFinite(value)) {
+        const value = historyValue(point, series.key);
+        if (value !== null) {
           minimum = Math.min(minimum, value);
           maximum = Math.max(maximum, value);
         }
@@ -105,17 +144,21 @@ export default function HistoryView({
       maximum === minimum ? minimum + 1 : maximum + (maximum - minimum) * 0.06,
     ];
   }, [points, visible]);
+  const unitSeries = SERIES.filter(
+    (series) => UNIT_METRICS.has(series.key) && visible.has(series.key),
+  );
+  const unitAxis = unitSeries.length > 0;
   const box = {
     left: 58,
     top: 20,
-    right: width - (visible.has("diversity") ? 50 : 18),
+    right: width - (unitAxis ? 50 : 18),
     bottom: height - 36,
   };
   const x = (generation: number) =>
     box.left + ((generation - xMin) / (xMax - xMin)) * (box.right - box.left);
   const y = (value: number, metric: HistoryMetric) =>
     box.bottom -
-    (metric === "diversity" ? value : (value - yMin) / (yMax - yMin)) *
+    (UNIT_METRICS.has(metric) ? value : (value - yMin) / (yMax - yMin)) *
       (box.bottom - box.top);
   // Cache the full-resolution geometry; pointer inspection never rebuilds thousands of coordinates.
   const renderedSeries = useMemo(
@@ -129,7 +172,7 @@ export default function HistoryView({
                 <circle
                   key={index}
                   cx={x(segment[0].generation)}
-                  cy={y(segment[0][series.key]!, series.key)}
+                  cy={y(valueOf(segment[0], series.key)!, series.key)}
                   r={2.5}
                   fill={series.color}
                 />
@@ -143,7 +186,7 @@ export default function HistoryView({
                   points={segment
                     .map(
                       (point) =>
-                        `${x(point.generation).toFixed(2)},${y(point[series.key]!, series.key).toFixed(2)}`,
+                        `${x(point.generation).toFixed(2)},${y(valueOf(point, series.key)!, series.key).toFixed(2)}`,
                     )
                     .join(" ")}
                 />
@@ -151,7 +194,7 @@ export default function HistoryView({
             )}
         </g>
       )),
-    [segments, visible, xMin, xMax, yMin, yMax, width, height],
+    [segments, visible, xMin, xMax, yMin, yMax, width, height, eliteScale],
   );
   const hovered =
     points.find((point) => point.generation === hoverGeneration) ??
@@ -182,6 +225,11 @@ export default function HistoryView({
   };
   return (
     <section className="rv-panel rv-history" aria-label="Fitness history">
+      <SearchHealth
+        latest={points.at(-1) ?? null}
+        eliteCount={eliteCount}
+        populationSize={populationSize}
+      />
       <div className="rv-toolbar rv-history-toolbar">
         <div className="rv-series-toggles">
           {SERIES.map((series) => (
@@ -315,7 +363,7 @@ export default function HistoryView({
                     >
                       {value.toFixed(yMax < 0.1 ? 4 : 2)}
                     </text>
-                    {visible.has("diversity") && (
+                    {unitAxis && (
                       <text
                         className="rv-axis-text"
                         x={box.right + 8}
@@ -354,14 +402,15 @@ export default function HistoryView({
               >
                 GA generation
               </text>
-              {visible.has("diversity") && (
+              {unitAxis && (
                 <text
                   className="rv-axis-title"
                   x={box.right}
                   y={11}
                   textAnchor="end"
                 >
-                  Entropy (right, 0–1)
+                  {unitSeries.map((series) => series.axis).join(" · ")} (right,
+                  0–1)
                 </text>
               )}
               {renderedSeries}
@@ -387,12 +436,13 @@ export default function HistoryView({
                   />
                   {SERIES.filter(
                     (series) =>
-                      visible.has(series.key) && hovered[series.key] !== null,
+                      visible.has(series.key) &&
+                      valueOf(hovered, series.key) !== null,
                   ).map((series) => (
                     <circle
                       key={series.key}
                       cx={x(hovered.generation)}
-                      cy={y(hovered[series.key]!, series.key)}
+                      cy={y(valueOf(hovered, series.key)!, series.key)}
                       r={2.5}
                       fill={series.color}
                     />
@@ -409,7 +459,8 @@ export default function HistoryView({
                   (series) => (
                     <span key={series.key}>
                       <i style={{ background: series.color }} />
-                      {series.label} <b>{formatFitness(hovered[series.key])}</b>
+                      {series.label}{" "}
+                      <b>{historyReadout(hovered, series.key, scale)}</b>
                     </span>
                   ),
                 )}
@@ -420,8 +471,9 @@ export default function HistoryView({
             {available.length
               ? "Click the chart or press Enter to inspect the nearest retained snapshot."
               : "No retained snapshots yet."}{" "}
-            Held-out gaps mean not evaluated. All {points.length} recorded
-            history points shown.
+            Held-out gaps mean not evaluated; repeat-share gaps mean the
+            generation's evaluation counts were not recorded. All{" "}
+            {points.length} recorded history points shown.
           </div>
         </>
       )}

@@ -6,7 +6,14 @@ import {
   type CSSProperties,
 } from "react";
 import type { GenerationSnapshot, Individual } from "../../research/types";
-import { formatFitness, geneLabel, rankPopulation } from "./visualizerData";
+import {
+  fitnessGap,
+  formatFitness,
+  formatSigned,
+  GAP_EMPHASIS,
+  geneLabel,
+  rankPopulation,
+} from "./visualizerData";
 import "./visualizers.css";
 
 const PAGE_SIZE = 32;
@@ -112,6 +119,18 @@ export default function PopulationView({
               </th>
               <th
                 scope="col"
+                title={`Training fitness minus held-out fitness. Positive means the rule scores higher on its training worlds; gaps above ${GAP_EMPHASIS} are emphasized as a generalization warning.`}
+              >
+                Gap
+              </th>
+              <th
+                scope="col"
+                title="Per-fixture training scores, one bar per training world on a 0–1 scale; hover a bar for its value"
+              >
+                Training
+              </th>
+              <th
+                scope="col"
                 title="Generation in which this individual was born"
               >
                 Born
@@ -130,77 +149,127 @@ export default function PopulationView({
             </tr>
           </thead>
           <tbody>
-            {ranked.slice(start, start + PAGE_SIZE).map((individual, index) => (
-              <tr
-                key={individual.id}
-                aria-selected={individual.id === selectedId}
-                tabIndex={0}
-                onClick={() => onSelect(individual)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onSelect(individual);
-                  }
-                }}
-                aria-label={`Rank ${start + index + 1}, individual ${individual.id}, fitness ${formatFitness(individual.fitness)}`}
-              >
-                <td className="rv-muted">{start + index + 1}</td>
-                <td className="rv-id" title={individual.id}>
-                  {individual.id}
-                </td>
-                <td
-                  title={
-                    individual.disqualified
-                      ? individual.fixturePasses
-                        ? `${individual.fixturePasses.training.filter(Boolean).length}/${individual.fixturePasses.training.length} training fixtures passed. Failures contribute zero.`
-                        : "A training fixture was disqualified."
-                      : String(individual.fitness)
-                  }
+            {ranked.slice(start, start + PAGE_SIZE).map((individual, index) => {
+              const gap = fitnessGap(individual);
+              const wideGap = gap !== null && gap > GAP_EMPHASIS;
+              const scores = individual.trainingScores ?? [];
+              return (
+                <tr
+                  key={individual.id}
+                  aria-selected={individual.id === selectedId}
+                  tabIndex={0}
+                  onClick={() => onSelect(individual)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelect(individual);
+                    }
+                  }}
+                  aria-label={`Rank ${start + index + 1}, individual ${individual.id}, fitness ${formatFitness(individual.fitness)}`}
                 >
-                  {formatFitness(individual.fitness)}
-                  {individual.disqualified ? " · F" : ""}
-                </td>
-                <td
-                  title={
-                    individual.validationDisqualified
-                      ? "A held-out fixture was disqualified; failures contribute zero."
-                      : individual.validationFitness === null
-                        ? "Not evaluated"
-                        : String(individual.validationFitness)
-                  }
-                >
-                  {individual.validationDisqualified
-                    ? `${formatFitness(individual.validationFitness ?? 0)} · F`
-                    : formatFitness(individual.validationFitness)}
-                </td>
-                <td>{individual.birthGeneration}</td>
-                <td
-                  className="rv-muted"
-                  title={
-                    individual.parents.length
-                      ? `Parents: ${individual.parents.map((parent) => parent.id).join(", ")}`
-                      : "No parents recorded"
-                  }
-                >
-                  {individual.origin}
-                </td>
-                <td>
-                  <div
-                    className="rv-gene-strip"
-                    aria-label={`${geneCount} rule outputs`}
+                  <td className="rv-muted">{start + index + 1}</td>
+                  <td className="rv-id" title={individual.id}>
+                    {individual.id}
+                  </td>
+                  <td
+                    title={
+                      individual.disqualified
+                        ? individual.fixturePasses
+                          ? `${individual.fixturePasses.training.filter(Boolean).length}/${individual.fixturePasses.training.length} training fixtures passed. Failures contribute zero.`
+                          : "A training fixture was disqualified."
+                        : String(individual.fitness)
+                    }
                   >
-                    {individual.genome.map((output, locus) => (
+                    {formatFitness(individual.fitness)}
+                    {individual.disqualified ? " · F" : ""}
+                  </td>
+                  <td
+                    title={
+                      individual.validationDisqualified
+                        ? "A held-out fixture was disqualified; failures contribute zero."
+                        : individual.validationFitness === null
+                          ? "Not evaluated"
+                          : String(individual.validationFitness)
+                    }
+                  >
+                    {individual.validationDisqualified
+                      ? `${formatFitness(individual.validationFitness ?? 0)} · F`
+                      : formatFitness(individual.validationFitness)}
+                  </td>
+                  <td
+                    className={wideGap ? "rv-gap rv-gap-wide" : "rv-gap"}
+                    title={
+                      gap === null
+                        ? "No held-out evaluation to compare against"
+                        : `Training ${individual.fitness} − held-out ${individual.validationFitness} = ${gap}${wideGap ? `; above ${GAP_EMPHASIS}, so training gains may not generalize` : ""}`
+                    }
+                  >
+                    {formatSigned(gap)}
+                  </td>
+                  <td>
+                    {scores.length ? (
+                      <div
+                        className="rv-score-bars"
+                        role="img"
+                        aria-label={`Training scores ${scores.map(formatFitness).join(", ")}`}
+                      >
+                        {scores.map((score, fixture) => {
+                          const failed =
+                            individual.fixturePasses?.training[fixture] === false;
+                          return (
+                            <i
+                              key={fixture}
+                              className={`rv-score-bar${failed ? " rv-score-bar-failed" : ""}`}
+                              style={
+                                {
+                                  "--score": Number.isFinite(score)
+                                    ? Math.max(0, Math.min(1, score))
+                                    : 0,
+                                } as CSSProperties
+                              }
+                              title={`Training fixture ${fixture + 1}: ${formatFitness(score)}${failed ? " (disqualified)" : ""}`}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : (
                       <span
-                        key={locus}
-                        className={`rv-gene rv-state-${output}${locus === 0 ? " rv-quiescent" : ""}${locus % 9 === 0 ? " rv-gene-group" : ""}`}
-                        title={geneLabel(locus, output)}
-                        aria-label={geneLabel(locus, output)}
-                      />
-                    ))}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                        className="rv-muted"
+                        title="No per-fixture training scores recorded"
+                      >
+                        —
+                      </span>
+                    )}
+                  </td>
+                  <td>{individual.birthGeneration}</td>
+                  <td
+                    className="rv-muted"
+                    title={
+                      individual.parents.length
+                        ? `Parents: ${individual.parents.map((parent) => parent.id).join(", ")}`
+                        : "No parents recorded"
+                    }
+                  >
+                    {individual.origin}
+                  </td>
+                  <td>
+                    <div
+                      className="rv-gene-strip"
+                      aria-label={`${geneCount} rule outputs`}
+                    >
+                      {individual.genome.map((output, locus) => (
+                        <span
+                          key={locus}
+                          className={`rv-gene rv-state-${output}${locus === 0 ? " rv-quiescent" : ""}${locus % 9 === 0 ? " rv-gene-group" : ""}`}
+                          title={geneLabel(locus, output)}
+                          aria-label={geneLabel(locus, output)}
+                        />
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
