@@ -2051,6 +2051,11 @@ input[type="range"]:disabled {
 .scoring-config.has-error legend {
   color: var(--coral);
 }
+/* Readout callouts share the field column's width so the left edge stays one line. */
+.creator-readout,
+.mutation-readout {
+  max-width: 640px;
+}
 .creator-readout {
   margin: 10px 0 6px;
   padding: 8px 10px;
@@ -2157,7 +2162,8 @@ input[type="range"]:disabled {
   white-space: normal;
 }
 .score-examples th:first-child,
-.score-examples td:first-child {
+.score-examples td:first-child,
+.score-examples thead th:last-child {
   text-align: left;
 }
 .score-examples tbody th {
@@ -2324,6 +2330,10 @@ button.summary-group-title:hover:not(:disabled) {
   }
   .creator-section .config-field {
     grid-template-columns: minmax(110px, 1fr) minmax(0, 1.1fr);
+    max-width: none;
+  }
+  .creator-readout,
+  .mutation-readout {
     max-width: none;
   }
   .experiment-summary {
