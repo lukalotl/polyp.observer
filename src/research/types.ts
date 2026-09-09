@@ -46,17 +46,44 @@ export interface RunConfig {
   randomRuleBias?: "sparse" | "uniform";
   populationSize: number;
   eliteCount: number;
-  selection: "tournament" | "rank";
+  /**
+   * "distinct": the `eliteCount` retained elites are the fittest individuals
+   * with pairwise-distinct genomes (falling back to duplicates only when the
+   * population holds fewer distinct genomes). Omitted by older runs, which
+   * retain "slots": the top `eliteCount` by fitness regardless of duplication.
+   */
+  elitism?: "slots" | "distinct";
+  /**
+   * "tournament" / "rank" select on aggregate training fitness. "lexicase" is
+   * epsilon-lexicase over per-fixture `trainingScores` and requires at least
+   * two training fixtures.
+   */
+  selection: "tournament" | "rank" | "lexicase";
   tournamentSize: number;
   crossover: "uniform" | "onePoint" | "none";
   crossoverRate: number;
+  /** Per-locus change probability; used by the "independent" mutation policy. */
   mutationRate: number;
+  /**
+   * "independent": each unlocked locus changes with probability `mutationRate`.
+   * "heavyTailed": draw k from P(k) ∝ k^-mutationBeta over 1..floor(unlocked/2),
+   * then change exactly k distinct unlocked loci (Doerr et al. 2017, fast GA).
+   * Omitted by older runs, which retain "independent" and exact RNG replay.
+   */
+  mutationPolicy?: "independent" | "heavyTailed";
+  /** Power-law exponent for "heavyTailed"; required with that policy, 1..4. */
+  mutationBeta?: number;
   immigrantRate: number;
   randomSeed: number;
   cacheSize: number;
   evaluationWorkers: number;
   /** Zero means no generation limit. */
   maxGenerations: number;
+  /**
+   * Pause automatically after this many generations without a strict
+   * improvement of the all-time champion. Zero or omitted means never.
+   */
+  stallGenerations?: number;
   checkpointSeconds: number;
   snapshotEvery: number;
   retainedSnapshots: number;
@@ -138,6 +165,12 @@ export interface GenerationMetrics {
   uniqueGenomes: number;
   evaluations: number;
   cacheHits: number;
+  /** Distinct genomes among the `eliteCount` fittest individuals (0 with no elites). */
+  distinctElites: number;
+  /** Individuals sharing the genome of the population's fittest member. */
+  bestCopies: number;
+  /** Generations since the all-time champion was born (its last strict improvement). */
+  generationsSinceImprovement: number;
 }
 export interface GenerationSnapshot {
   generation: number;
@@ -149,6 +182,10 @@ export interface HistoryPoint extends GenerationMetrics {
   elapsedMs: number;
   generationMs: number;
   evalsPerSecond: number;
+  /** Unique genomes actually evaluated this generation. Absent in older history. */
+  generationEvaluations?: number;
+  /** Candidates this generation that repeated an already-evaluated genome. Absent in older history. */
+  generationRepeats?: number;
 }
 export interface ChampionPoint {
   generation: number;
@@ -187,6 +224,9 @@ export interface RunSummary {
   error: string | null;
   stopReason: string | null;
   parentRunId: string | null;
+  /** Mirrors the latest GenerationMetrics; absent from older servers. */
+  generationsSinceImprovement?: number;
+  distinctElites?: number;
 }
 export interface SnapshotRef {
   generation: number;

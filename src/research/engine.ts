@@ -535,6 +535,10 @@ export function generationSnapshot(state: EngineState): GenerationSnapshot {
   const validation = state.population.flatMap((item) =>
     item.validationFitness === null ? [] : [item.validationFitness],
   );
+  // Breeding diversity: whole-population uniqueness overstates the variety
+  // among the individuals most likely to be retained and selected.
+  const ranked = state.population.slice().sort((a, b) => b.fitness - a.fitness);
+  const bestKey = keyOf(ranked[0].genome);
   return {
     generation: state.generation,
     population: copy(state.population),
@@ -555,6 +559,15 @@ export function generationSnapshot(state: EngineState): GenerationSnapshot {
         .size,
       evaluations: state.evaluations,
       cacheHits: state.cacheHits,
+      distinctElites: new Set(
+        ranked
+          .slice(0, state.config.eliteCount)
+          .map((item) => keyOf(item.genome)),
+      ).size,
+      bestCopies: ranked.filter((item) => keyOf(item.genome) === bestKey)
+        .length,
+      generationsSinceImprovement:
+        state.generation - state.champion.birthGeneration,
     },
   };
 }
