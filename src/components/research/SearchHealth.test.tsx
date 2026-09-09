@@ -48,7 +48,7 @@ describe("search health strip", () => {
     );
     const { region, text } = items();
     expect(text("Since improvement")).toBe("Since improvement 12 gen");
-    expect(text("Distinct elites")).toBe("Distinct elites 2 / 4");
+    expect(text("Distinct among top 4")).toBe("Distinct among top 4 2 / 4");
     expect(text("Best copies")).toBe("Best copies 3 / 64");
     expect(text("Unique evaluations")).toBe("Unique evaluations 58");
     expect(text("Repeat share")).toBe("Repeat share 9.4%");
@@ -57,14 +57,25 @@ describe("search health strip", () => {
     expect(
       within(region).getByTitle(/repeats \/ \(repeats \+ unique evaluations\)/),
     ).toHaveTextContent("9.4%");
-    expect(within(region).getByTitle(/the 4 fittest individuals/)).toBeTruthy();
+    // The head-convergence readout is labelled as such: distinct elitism keeps
+    // retained elites distinct by construction, so the count is about copies of
+    // the leader crowding the top ranks, not about the retained elites.
+    const head = within(region).getByTitle(/the 4 fittest individuals/);
+    expect(head).toHaveTextContent("Distinct among top 4 2 / 4");
+    expect(head.getAttribute("title")).toMatch(/^Head convergence/);
+    expect(head.getAttribute("title")).toMatch(/distinct by construction/);
+    expect(head.getAttribute("title")).toMatch(/copies of the leader/);
+    expect(within(region).queryByText(/Distinct elites/)).toBeNull();
     expect(region.querySelectorAll(".rv-health-unrecorded")).toHaveLength(0);
     expect(region.textContent).not.toContain("NaN");
   });
   it("reports unrecorded counts and bare counts when optional fields and denominators are absent", () => {
     render(<SearchHealth latest={point()} />);
     const { region, text } = items();
-    expect(text("Distinct elites")).toBe("Distinct elites 2");
+    expect(text("Distinct among top ranks")).toBe("Distinct among top ranks 2");
+    expect(
+      within(region).getByTitle(/top-ranked individuals \(one per elite slot\)/),
+    ).toHaveTextContent("Distinct among top ranks 2");
     expect(text("Best copies")).toBe("Best copies 3");
     expect(text("Unique evaluations")).toBe("Unique evaluations not recorded");
     expect(text("Repeat share")).toBe("Repeat share not recorded");
@@ -104,7 +115,7 @@ describe("search health strip", () => {
     );
     const { region, text } = items();
     expect(text("Since improvement")).toBe("Since improvement —");
-    expect(text("Distinct elites")).toBe("Distinct elites —");
+    expect(text("Distinct among top 4")).toBe("Distinct among top 4 —");
     expect(text("Best copies")).toBe("Best copies —");
     expect(text("Unique evaluations")).toBe("Unique evaluations —");
     expect(text("Repeat share")).toBe("Repeat share —");
@@ -117,7 +128,7 @@ describe("search health strip", () => {
       <SearchHealth latest={legacy as HistoryPoint} eliteCount={4} />,
     );
     expect(items().text("Since improvement")).toBe("Since improvement —");
-    expect(items().text("Distinct elites")).toBe("Distinct elites —");
+    expect(items().text("Distinct among top 4")).toBe("Distinct among top 4 —");
     expect(items().text("Best copies")).toBe("Best copies —");
     expect(items().region.textContent).not.toContain("NaN");
   });

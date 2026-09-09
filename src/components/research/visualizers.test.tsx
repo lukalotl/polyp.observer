@@ -477,7 +477,7 @@ describe("fitness history panel", () => {
     expect(readout).toHaveTextContent("Distinct elites 3 / 4");
     const health = screen.getByRole("region", { name: "Search health" });
     expect(health).toHaveTextContent("Since improvement 7 gen");
-    expect(health).toHaveTextContent("Distinct elites 4 / 4");
+    expect(health).toHaveTextContent("Distinct among top 4 4 / 4");
     expect(health).toHaveTextContent("Best copies 5 / 64");
     expect(health).toHaveTextContent("Unique evaluations 40");
     expect(health).toHaveTextContent("Repeat share 37.5%");
@@ -503,8 +503,8 @@ describe("fitness history panel", () => {
         onSelectGeneration={() => {}}
       />,
     );
-    expect(health).toHaveTextContent("Distinct elites 2");
-    expect(health).not.toHaveTextContent("Distinct elites 2 /");
+    expect(health).toHaveTextContent("Distinct among top ranks 2");
+    expect(health).not.toHaveTextContent("Distinct among top ranks 2 /");
     expect(health).toHaveTextContent("Best copies 3");
     expect(health).toHaveTextContent("Unique evaluations not recorded");
     expect(health).toHaveTextContent("Repeat share not recorded");

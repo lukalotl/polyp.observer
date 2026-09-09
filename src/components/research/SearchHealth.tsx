@@ -52,9 +52,11 @@ export default function SearchHealth({
     },
     {
       key: "elites",
-      label: "Distinct elites",
+      label: known(eliteCount)
+        ? `Distinct among top ${eliteCount}`
+        : "Distinct among top ranks",
       value: ratio(latest?.distinctElites, eliteCount),
-      title: `Distinct genomes among the retained elites${known(eliteCount) ? ` (the ${eliteCount} fittest individuals)` : ""}. Copies of one genome shrink the breeding pool even when the whole population looks diverse.`,
+      title: `Head convergence: distinct genomes among the ${known(eliteCount) ? `${eliteCount} fittest individuals` : "top-ranked individuals (one per elite slot)"} by fitness rank. Under distinct elitism the retained elites are distinct by construction, so this counts how many copies of the leader crowd the top ranks: fewer distinct means more copies, even when the whole population looks diverse.`,
       recorded: true,
     },
     {
