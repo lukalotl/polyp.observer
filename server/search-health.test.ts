@@ -416,6 +416,22 @@ test(
         advanced.summary.generationsSinceImprovement,
       );
       assert.equal(fork.summary.distinctElites, advanced.summary.distinctElites);
+      // No request allowlist or worker boundary strips the newer config keys.
+      for (const key of [
+        "elitism",
+        "mutationPolicy",
+        "mutationBeta",
+        "stallGenerations",
+      ] as const)
+        if (Object.hasOwn(DEFAULT_RUN_CONFIG, key)) {
+          assert.deepEqual(created.config[key], DEFAULT_RUN_CONFIG[key], key);
+          assert.deepEqual(fork.config[key], created.config[key], key);
+        }
+      assert.deepEqual(
+        { ...fork.config, name: created.config.name },
+        created.config,
+        "fork copies the configuration verbatim apart from its name",
+      );
       const uninitialized = await api(f.server, "runs/import", {
         checkpoint: await checkpoint(
           f.server,

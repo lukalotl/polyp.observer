@@ -65,6 +65,16 @@ const tiny = (patch: Partial<RunConfig> = {}): RunConfig => ({
   retainedSnapshots: 3,
   ...patch,
 });
+/**
+ * Fixtures that rely on `mutationRate: 0` producing clones (cache hits, founder
+ * champions) need per-locus mutation: the heavy-tailed default always changes
+ * at least one locus. An absent policy already means independent.
+ */
+function independentMutation(cfg: RunConfig): RunConfig {
+  if (cfg.mutationPolicy === undefined) return cfg;
+  const { mutationBeta: _beta, ...rest } = cfg;
+  return { ...rest, mutationPolicy: "independent" };
+}
 const url = (server: Endpoint, path: string) =>
   `http://127.0.0.1:${server.port}/api/${path}`;
 async function response(
@@ -340,13 +350,15 @@ test(
   { timeout: 30_000 },
   async (t) => {
     const f = await fixture(t);
-    const config = tiny({
-      boundaryPolicy: { spatial: false, horizon: false },
-      maxGenerations: 6,
-      mutationRate: 0.03,
-      immigrantRate: 0.25,
-      crossoverRate: 1,
-    });
+    const config = independentMutation(
+      tiny({
+        boundaryPolicy: { spatial: false, horizon: false },
+        maxGenerations: 6,
+        mutationRate: 0.03,
+        immigrantRate: 0.25,
+        crossoverRate: 1,
+      }),
+    );
     const first = await create(f.server, config, true);
     const second = await create(
       f.server,
@@ -1661,16 +1673,18 @@ test(
   async (t) => {
     const f = await fixture(t);
     const genome = Array(45).fill(0);
-    const cfg = tiny({
-      seed: "soup",
-      soupSize: 4,
-      size: 17,
-      steps: 8,
-      objective: "finiteSparse",
-      seedGenome: genome,
-      mutationRate: 0,
-      immigrantRate: 0,
-    });
+    const cfg = independentMutation(
+      tiny({
+        seed: "soup",
+        soupSize: 4,
+        size: 17,
+        steps: 8,
+        objective: "finiteSparse",
+        seedGenome: genome,
+        mutationRate: 0,
+        immigrantRate: 0,
+      }),
+    );
     const small = await create(f.server, cfg);
     const large = await create(f.server, {
       ...cfg,

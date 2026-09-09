@@ -45,6 +45,17 @@ const base = (patch: Partial<RunConfig> = {}): RunConfig => ({
   retainedSnapshots: 3,
   ...patch,
 });
+/**
+ * Fixtures that rely on `mutationRate: 0` producing clones (one evaluation per
+ * generation, founder champions) need per-locus mutation: the heavy-tailed
+ * default always changes at least one locus. An absent policy already means
+ * independent.
+ */
+function independentMutation(cfg: RunConfig): RunConfig {
+  if (cfg.mutationPolicy === undefined) return cfg;
+  const { mutationBeta: _beta, ...rest } = cfg;
+  return { ...rest, mutationPolicy: "independent" };
+}
 async function api(port: number, path: string, input?: unknown): Promise<any> {
   const response = await fetch(
     `http://127.0.0.1:${port}/api/${path}`,
@@ -206,14 +217,16 @@ test(
   async () => {
     await fixture(async (port) => {
       const run = (await api(port, "runs", {
-        config: base({
-          maxGenerations: 4101,
-          mutationRate: 0,
-          immigrantRate: 0,
-          crossover: "none",
-          snapshotEvery: 1000,
-          retainedSnapshots: 2,
-        }),
+        config: independentMutation(
+          base({
+            maxGenerations: 4101,
+            mutationRate: 0,
+            immigrantRate: 0,
+            crossover: "none",
+            snapshotEvery: 1000,
+            retainedSnapshots: 2,
+          }),
+        ),
         start: true,
       })) as RunDetail;
       const result = await state(
@@ -264,15 +277,17 @@ test("large grids and deep horizons execute on real workers, preview fully, and 
     genome[18] = 3;
     genome[27] = 4;
     genome[36] = 1;
-    const config = base({
-      size: 257,
-      steps: 8192,
-      seed: "point",
-      seedGenome: genome,
-      mutationRate: 0,
-      immigrantRate: 0,
-      crossover: "none",
-    });
+    const config = independentMutation(
+      base({
+        size: 257,
+        steps: 8192,
+        seed: "point",
+        seedGenome: genome,
+        mutationRate: 0,
+        immigrantRate: 0,
+        crossover: "none",
+      }),
+    );
     const run = (await api(port, "runs", { config })) as RunDetail;
     await api(port, `runs/${run.summary.id}/actions`, { action: "step" });
     const evaluated = await state(port, run.summary.id, "paused", 0);
