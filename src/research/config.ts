@@ -31,22 +31,40 @@ export const DEFAULT_RUN_CONFIG: RunConfig = {
   initialization: "random",
   randomRuleBias: "sparse",
   populationSize: 64,
-  eliteCount: 4,
+  // Two distinct elites, tournaments of two and about 1.5 changes per child are
+  // the trial settings from docs/ga-strategy-review.md (audited runs kept four
+  // copies of one genome in their elite slots). Saved configs without these
+  // keys keep the original slots/independent operators and replay exactly.
+  eliteCount: 2,
+  elitism: "distinct",
   selection: "tournament",
-  tournamentSize: 4,
+  tournamentSize: 2,
   crossover: "uniform",
   crossoverRate: 0.7,
-  mutationRate: 0.03,
+  mutationRate: 0.034,
+  mutationPolicy: "heavyTailed",
+  mutationBeta: 1.5,
   immigrantRate: 0.05,
   randomSeed: 1729,
   cacheSize: 2048,
   evaluationWorkers: 2,
   maxGenerations: 0,
+  stallGenerations: 0,
   checkpointSeconds: 10,
   snapshotEvery: 100,
   retainedSnapshots: 48,
   resumeOnRestart: true,
 };
+
+/** Keys older saved configurations may omit; an absent key means legacy behavior. */
+const optionalKeys: readonly string[] = [
+  "fixtureFailures",
+  "randomRuleBias",
+  "elitism",
+  "mutationPolicy",
+  "mutationBeta",
+  "stallGenerations",
+];
 
 export function record(value: unknown, label: string): Record<string, unknown> {
   if (
@@ -144,10 +162,9 @@ export function validateRunConfig(value: unknown): RunConfig {
     v,
     [
       ...Object.keys(DEFAULT_RUN_CONFIG).filter(
-        (key) => key !== "fixtureFailures" && key !== "randomRuleBias",
+        (key) => !optionalKeys.includes(key),
       ),
-      ...(Object.hasOwn(v, "fixtureFailures") ? ["fixtureFailures"] : []),
-      ...(Object.hasOwn(v, "randomRuleBias") ? ["randomRuleBias"] : []),
+      ...optionalKeys.filter((key) => Object.hasOwn(v, key)),
       ...(Object.hasOwn(v, "soupSize") ? ["soupSize"] : []),
       ...(Object.hasOwn(v, "incentives") ? ["incentives"] : []),
     ],
@@ -209,6 +226,28 @@ export function validateRunConfig(value: unknown): RunConfig {
     throw new RangeError(
       "Training and held-out seeds must not overlap (including uint32 RNG aliases).",
     );
+  const selection = choice(
+    v.selection,
+    ["tournament", "rank", "lexicase"] as const,
+    "selection",
+  );
+  if (selection === "lexicase" && trainingSeeds.length < 2)
+    throw new RangeError(
+      "Lexicase selection needs at least 2 training seeds; with one fixture it cannot distinguish specialists from the aggregate score.",
+    );
+  const mutationPolicy = Object.hasOwn(v, "mutationPolicy")
+    ? choice(
+        v.mutationPolicy,
+        ["independent", "heavyTailed"] as const,
+        "mutation policy",
+      )
+    : undefined;
+  if ((mutationPolicy === "heavyTailed") !== Object.hasOwn(v, "mutationBeta"))
+    throw new RangeError(
+      mutationPolicy === "heavyTailed"
+        ? "Mutation beta is required for heavy-tailed mutation."
+        : "Mutation beta applies only to heavy-tailed mutation.",
+    );
   return {
     ...(Object.hasOwn(v, "incentives")
       ? { incentives: validateIncentives(v.incentives) }
@@ -264,7 +303,10 @@ export function validateRunConfig(value: unknown): RunConfig {
       : {}),
     populationSize,
     eliteCount,
-    selection: choice(v.selection, ["tournament", "rank"], "selection"),
+    ...(Object.hasOwn(v, "elitism")
+      ? { elitism: choice(v.elitism, ["slots", "distinct"] as const, "elitism") }
+      : {}),
+    selection,
     tournamentSize: integer(
       v.tournamentSize,
       2,
@@ -278,6 +320,10 @@ export function validateRunConfig(value: unknown): RunConfig {
     ),
     crossoverRate: finite(v.crossoverRate, 0, 1, "Crossover rate"),
     mutationRate: finite(v.mutationRate, 0, 1, "Mutation rate"),
+    ...(mutationPolicy ? { mutationPolicy } : {}),
+    ...(Object.hasOwn(v, "mutationBeta")
+      ? { mutationBeta: finite(v.mutationBeta, 1, 4, "Mutation beta") }
+      : {}),
     immigrantRate,
     randomSeed: integer(
       v.randomSeed,
@@ -298,6 +344,16 @@ export function validateRunConfig(value: unknown): RunConfig {
       1_000_000_000,
       "Maximum generations",
     ),
+    ...(Object.hasOwn(v, "stallGenerations")
+      ? {
+          stallGenerations: integer(
+            v.stallGenerations,
+            0,
+            1_000_000_000,
+            "Stall generations",
+          ),
+        }
+      : {}),
     checkpointSeconds: finite(
       v.checkpointSeconds,
       2,
@@ -327,8 +383,7 @@ export function migrateLegacyRunConfig(
     v,
     Object.keys(DEFAULT_RUN_CONFIG).filter(
       (key) =>
-        (key !== "fixtureFailures" || Object.hasOwn(v, key)) &&
-        (key !== "randomRuleBias" || Object.hasOwn(v, key)) &&
+        (!optionalKeys.includes(key) || Object.hasOwn(v, key)) &&
         key !== "boundaryPolicy" &&
         (version !== LEGACY_MODEL_VERSION || key !== "stateCount"),
     ),

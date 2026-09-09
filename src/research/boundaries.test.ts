@@ -7,8 +7,17 @@ import { sampleTrajectory } from "./sample";
 import { streamTrajectory } from "./trajectory";
 import type { RunConfig } from "./types";
 
+/** Legacy-shaped config: the operator keys older saved runs omit are absent. */
+const legacy = (cfg: RunConfig): RunConfig => {
+  const copy = structuredClone(cfg);
+  delete copy.elitism;
+  delete copy.mutationPolicy;
+  delete copy.mutationBeta;
+  delete copy.stallGenerations;
+  return copy;
+};
 const config = (patch: Partial<RunConfig> = {}): RunConfig => ({
-  ...structuredClone(DEFAULT_RUN_CONFIG),
+  ...legacy(DEFAULT_RUN_CONFIG),
   fixtureFailures: "all",
   stateCount: 2,
   seedGenome: Array(18).fill(0),

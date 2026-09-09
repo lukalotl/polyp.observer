@@ -117,13 +117,21 @@ describe("sparse random rule sampling", () => {
       steps: 8,
       populationSize: 8,
       eliteCount: 2,
+      tournamentSize: 4,
+      mutationRate: 0.03,
       randomSeed: 9182,
       initialization: "random",
       immigrantRate: 0.25,
       evaluationWorkers: 1,
     };
     delete config.randomRuleBias;
+    // The pre-bias engine also predates the elitism/mutation-policy/stall keys.
+    delete config.elitism;
+    delete config.mutationPolicy;
+    delete config.mutationBeta;
+    delete config.stallGenerations;
     expect(validateRunConfig(config)).not.toHaveProperty("randomRuleBias");
+    expect(validateRunConfig(config)).not.toHaveProperty("mutationPolicy");
     let state = await initializePopulation(config);
     for (let i = 0; i < 3; i++)
       state = await advanceGeneration(JSON.parse(JSON.stringify(state)));

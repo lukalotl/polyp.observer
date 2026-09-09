@@ -22,11 +22,20 @@ import {
 } from "./types";
 import { PRESETS } from "../simulation";
 
+/** Legacy-shaped config: the operator keys older saved runs omit are absent. */
+const legacy = (cfg: RunConfig): RunConfig => {
+  const copy = structuredClone(cfg);
+  delete copy.elitism;
+  delete copy.mutationPolicy;
+  delete copy.mutationBeta;
+  delete copy.stallGenerations;
+  return copy;
+};
 const configFor = (
   stateCount: number,
   patch: Partial<RunConfig> = {},
 ): RunConfig => ({
-  ...DEFAULT_RUN_CONFIG,
+  ...legacy(DEFAULT_RUN_CONFIG),
   stateCount,
   seedGenome: resizeGenome(DEFAULT_RUN_CONFIG.seedGenome, stateCount),
   size: 9,

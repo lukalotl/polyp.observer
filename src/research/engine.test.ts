@@ -15,14 +15,25 @@ import type {
   RunConfig,
 } from "./types";
 
+/** Legacy-shaped config: the operator keys older saved runs omit are absent. */
+const legacy = (cfg: RunConfig): RunConfig => {
+  const copy = structuredClone(cfg);
+  delete copy.elitism;
+  delete copy.mutationPolicy;
+  delete copy.mutationBeta;
+  delete copy.stallGenerations;
+  return copy;
+};
 const config = (updates: Partial<RunConfig> = {}): RunConfig => ({
-  ...structuredClone(DEFAULT_RUN_CONFIG),
+  ...legacy(DEFAULT_RUN_CONFIG),
   initialization: "mutants",
   randomRuleBias: "uniform",
   size: 9,
   steps: 8,
   populationSize: 16,
   eliteCount: 2,
+  tournamentSize: 4,
+  mutationRate: 0.03,
   immigrantRate: 0,
   cacheSize: 64,
   ...updates,

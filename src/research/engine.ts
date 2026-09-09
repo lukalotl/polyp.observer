@@ -9,6 +9,7 @@ import {
   migrateLegacyRunConfig,
 } from "./config";
 import { evaluateBatch } from "./evaluate";
+import { heavyTailedWeights } from "./mutation";
 import {
   MODEL_VERSION,
   LEGACY_MODEL_VERSION,
@@ -101,6 +102,7 @@ function randomGenome(random: Random, config: RunConfig): Genome {
           );
   });
 }
+/** "independent" policy: the original operator, one draw per unlocked locus. */
 function mutate(genome: Genome, rate: number, random: Random): number[] {
   const stateCount = genome.length / 9;
   const loci: number[] = [];
@@ -110,6 +112,80 @@ function mutate(genome: Genome, rate: number, random: Random): number[] {
       loci.push(i);
     }
   return loci;
+}
+/** "heavyTailed" policy (fast GA, Doerr et al. 2017). Draw order: one `next()`
+ * picks k against the cumulative table (index 0 is k = 1); k `index()` draws run
+ * a partial Fisher–Yates over unlocked loci 1..geneCount-1; then each chosen
+ * locus, in ascending order, changes with the independent operator's formula.
+ */
+function mutateHeavyTailed(
+  genome: Genome,
+  cumulative: number[],
+  random: Random,
+): number[] {
+  const stateCount = genome.length / 9;
+  const draw = random.next();
+  let k = 1;
+  while (k < cumulative.length && draw >= cumulative[k - 1]) k++;
+  const loci = Array.from({ length: genome.length - 1 }, (_, i) => i + 1);
+  for (let i = 0; i < k; i++) {
+    const j = i + random.index(loci.length - i);
+    [loci[i], loci[j]] = [loci[j], loci[i]];
+  }
+  const chosen = loci.slice(0, k).sort((a, b) => a - b);
+  for (const locus of chosen)
+    genome[locus] =
+      (genome[locus] + 1 + random.index(stateCount - 1)) % stateCount;
+  return chosen;
+}
+/** The configured operator; the heavy-tailed cumulative table is built once per call. */
+function mutator(
+  config: RunConfig,
+): (genome: Genome, random: Random) => number[] {
+  if (config.mutationPolicy !== "heavyTailed")
+    return (genome, random) => mutate(genome, config.mutationRate, random);
+  if (config.mutationBeta === undefined)
+    throw new RangeError("Heavy-tailed mutation requires mutationBeta.");
+  let total = 0;
+  const cumulative = heavyTailedWeights(
+    config.stateCount,
+    config.mutationBeta,
+  ).map((weight) => (total += weight));
+  return (genome, random) => mutateHeavyTailed(genome, cumulative, random);
+}
+/** Elites survive byte-for-byte (ID, ancestry, birth generation). "distinct"
+ * keeps the fittest individual per genome key; when the population holds fewer
+ * distinct genomes than slots, the next-best duplicates fill the remainder so
+ * exactly `eliteCount` survive and the nextId invariant holds. Consumes no RNG.
+ */
+function retainElites(
+  population: Individual[],
+  config: RunConfig,
+): Individual[] {
+  const ranked = population.slice().sort((a, b) => b.fitness - a.fitness);
+  if (config.elitism !== "distinct")
+    return ranked.slice(0, config.eliteCount);
+  const seen = new Set<string>(),
+    kept = new Set<Individual>();
+  for (const item of ranked) {
+    if (kept.size >= config.eliteCount) break;
+    const key = keyOf(item.genome);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.add(item);
+  }
+  for (const item of ranked) {
+    if (kept.size >= config.eliteCount) break;
+    kept.add(item);
+  }
+  return ranked.filter((item) => kept.has(item));
+}
+function median(values: number[]): number {
+  const sorted = values.slice().sort((a, b) => a - b),
+    middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 function parentRef(individual: Individual): ParentRef {
   return {
@@ -321,7 +397,8 @@ export async function initializePopulation(
   evaluate: BatchEvaluator = evaluateBatch,
 ): Promise<EngineState> {
   const checked = validateRunConfig(config),
-    random = new Random(checked.randomSeed >>> 0);
+    random = new Random(checked.randomSeed >>> 0),
+    mutateChild = mutator(checked);
   const metadata: Omit<Individual, keyof Evaluation>[] = [];
   for (let i = 0; i < checked.populationSize; i++) {
     const genome =
@@ -330,7 +407,7 @@ export async function initializePopulation(
         : checked.seedGenome.slice();
     const mutatedLoci =
       checked.initialization === "mutants" && i > 0
-        ? mutate(genome, checked.mutationRate, random)
+        ? mutateChild(genome, random)
         : [];
     metadata.push({
       id: `i${i + 1}`,
@@ -398,6 +475,37 @@ function selector(
       }
       return best;
     };
+  if (config.selection === "lexicase") {
+    // Epsilon-lexicase over per-fixture training scores: eps[f] is the median
+    // absolute deviation of the prior population's scores on fixture f. Each
+    // selection draws fixtures - 1 `index()` for the Fisher–Yates fixture order
+    // and one final `index()` among the survivors. Held-out scores are unread.
+    const fixtures = config.trainingSeeds.length;
+    const epsilon = Array.from({ length: fixtures }, (_, f) => {
+      const scores = population.map((item) => item.trainingScores[f]);
+      const center = median(scores);
+      return median(scores.map((score) => Math.abs(score - center)));
+    });
+    return () => {
+      const order = Array.from({ length: fixtures }, (_, f) => f);
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = random.index(i + 1);
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      let remaining = population;
+      for (const f of order) {
+        if (remaining.length <= 1) break;
+        let best = -Infinity;
+        for (const item of remaining)
+          if (item.trainingScores[f] > best) best = item.trainingScores[f];
+        const threshold = best - epsilon[f];
+        remaining = remaining.filter(
+          (item) => item.trainingScores[f] >= threshold,
+        );
+      }
+      return remaining[random.index(remaining.length)];
+    };
+  }
   const ranked = population.slice().sort((a, b) => a.fitness - b.fitness);
   // Linear-rank pressure (1..N), averaging ranks for ties avoids ID/order bias
   // on neutral plateaus and uses no held-out scores.
@@ -435,11 +543,9 @@ export async function advanceGeneration(
     throw new RangeError("Run has reached its generation limit.");
   const random = new Random(state.rngState),
     generation = state.generation + 1;
-  const select = selector(state.population, config, random);
-  const elites = state.population
-    .slice()
-    .sort((a, b) => b.fitness - a.fitness)
-    .slice(0, config.eliteCount);
+  const select = selector(state.population, config, random),
+    elites = retainElites(state.population, config),
+    mutateChild = mutator(config);
   const immigrants = Math.floor(config.populationSize * config.immigrantRate);
   const metadata: Omit<Individual, keyof Evaluation>[] = [];
   const children = config.populationSize - elites.length - immigrants;
@@ -471,9 +577,7 @@ export async function advanceGeneration(
         }
       }
     }
-    const mutatedLoci = first
-      ? mutate(genome, config.mutationRate, random)
-      : [];
+    const mutatedLoci = first ? mutateChild(genome, random) : [];
     metadata.push({
       id: `i${state.nextId++}`,
       genome,
