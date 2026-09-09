@@ -1,0 +1,148 @@
+[
+  {
+    "id": "9458a407-fde1-4bda-9a92-dfe6757e8192",
+    "base": {
+      "exposed": 1193,
+      "coverage": 0.28236686390532545,
+      "totalCells": 8826,
+      "reuseAlive": 7633,
+      "efficiency": 0.13516881939723543,
+      "meanStack": 7.398155909471919,
+      "lifetime": 77,
+      "peakPopulation": 216,
+      "extinct": true,
+      "contacts": {
+        "left": null,
+        "right": null,
+        "front": null,
+        "back": null,
+        "horizon": false
+      },
+      "lightEfficiency": 0.10381305955601935
+    },
+    "geometryHash": "7a4b4fb809f1512b18c4a91148d0f7916392f50014fff43c1b0423fdc4fda1ed",
+    "expanded": [
+      {
+        "size": 97,
+        "steps": 512,
+        "measurements": {
+          "exposed": 1193,
+          "coverage": 0.12679349558932937,
+          "totalCells": 8826,
+          "reuseAlive": 7633,
+          "efficiency": 0.13516881939723543,
+          "meanStack": 7.398155909471919,
+          "lifetime": 77,
+          "peakPopulation": 216,
+          "extinct": true,
+          "contacts": {
+            "left": null,
+            "right": null,
+            "front": null,
+            "back": null,
+            "horizon": false
+          },
+          "lightEfficiency": 0.04661602472358187
+        },
+        "geometryHash": "7a4b4fb809f1512b18c4a91148d0f7916392f50014fff43c1b0423fdc4fda1ed"
+      },
+      {
+        "size": 129,
+        "steps": 2048,
+        "measurements": {
+          "exposed": 1193,
+          "coverage": 0.07169040322096028,
+          "totalCells": 8826,
+          "reuseAlive": 7633,
+          "efficiency": 0.13516881939723543,
+          "meanStack": 7.398155909471919,
+          "lifetime": 77,
+          "peakPopulation": 216,
+          "extinct": true,
+          "contacts": {
+            "left": null,
+            "right": null,
+            "front": null,
+            "back": null,
+            "horizon": false
+          },
+          "lightEfficiency": 0.026357200686508125
+        },
+        "geometryHash": "7a4b4fb809f1512b18c4a91148d0f7916392f50014fff43c1b0423fdc4fda1ed"
+      }
+    ]
+  },
+  {
+    "id": "4b611f72-fed7-48de-a1a7-454e63055ecd",
+    "base": {
+      "exposed": 2401,
+      "coverage": 0.5682840236686391,
+      "totalCells": 30622,
+      "reuseAlive": 28221,
+      "efficiency": 0.07840768075240023,
+      "meanStack": 12.753852561432737,
+      "lifetime": 202,
+      "peakPopulation": 488,
+      "extinct": true,
+      "contacts": {
+        "left": null,
+        "right": null,
+        "front": null,
+        "back": null,
+        "horizon": false
+      },
+      "lightEfficiency": 0.15912732080932485
+    },
+    "geometryHash": "37f6e15c7df514445aafcf234aa4a0415d58f769a6a477913cf668cae424037e",
+    "expanded": [
+      {
+        "size": 97,
+        "steps": 512,
+        "measurements": {
+          "exposed": 2401,
+          "coverage": 0.25518120948028483,
+          "totalCells": 30622,
+          "reuseAlive": 28221,
+          "efficiency": 0.07840768075240023,
+          "meanStack": 12.753852561432737,
+          "lifetime": 202,
+          "peakPopulation": 488,
+          "extinct": true,
+          "contacts": {
+            "left": null,
+            "right": null,
+            "front": null,
+            "back": null,
+            "horizon": false
+          },
+          "lightEfficiency": 0.071454238539632
+        },
+        "geometryHash": "37f6e15c7df514445aafcf234aa4a0415d58f769a6a477913cf668cae424037e"
+      },
+      {
+        "size": 129,
+        "steps": 2048,
+        "measurements": {
+          "exposed": 2401,
+          "coverage": 0.14428219457965266,
+          "totalCells": 30622,
+          "reuseAlive": 28221,
+          "efficiency": 0.07840768075240023,
+          "meanStack": 12.753852561432737,
+          "lifetime": 202,
+          "peakPopulation": 488,
+          "extinct": true,
+          "contacts": {
+            "left": null,
+            "right": null,
+            "front": null,
+            "back": null,
+            "horizon": false
+          },
+          "lightEfficiency": 0.04040099335493044
+        },
+        "geometryHash": "37f6e15c7df514445aafcf234aa4a0415d58f769a6a477913cf668cae424037e"
+      }
+    ]
+  }
+]

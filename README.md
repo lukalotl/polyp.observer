@@ -217,6 +217,11 @@ protocol. Exact operators, metrics, validation and benchmark methods:
 [research engine](src/research/README.md),
 [legacy model reference](src/simulation/README.md).
 
+The [9 September light-area tuning report](docs/light-tuning-2026-09-09/README.md)
+records a three-hour native-GA experiment, controlled search comparisons,
+material penalties, and preserved public checkpoints. Its findings are specific
+to the tested cross pattern and include repeat variability and failed controls.
+
 ## Tests
 
 ```sh
