@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import { EventEmitter } from "node:events";
 import { validateRunConfig } from "../src/research/config";
+import { MAX_EVALUATION_WORKERS } from "../src/research/limits";
 import { generationSnapshot } from "../src/research/engine";
 import {
   MODEL_VERSION,
@@ -87,8 +88,8 @@ export class RunManager extends EventEmitter {
     );
     this.maxEvaluationWorkers = boundedOption(
       options.maxEvaluationWorkers,
-      Math.min(6, this.cpuBudget - 1),
-      Math.min(6, this.cpuBudget - 1),
+      Math.min(MAX_EVALUATION_WORKERS, this.cpuBudget - 1),
+      Math.min(MAX_EVALUATION_WORKERS, this.cpuBudget - 1),
     );
     this.maxRuns = boundedOption(options.maxRuns, 3, 3);
     this.store = new RunStore(options.dataDir);

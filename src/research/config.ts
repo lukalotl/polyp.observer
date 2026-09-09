@@ -6,7 +6,12 @@ import {
   PREVIOUS_MODEL_VERSION,
   type RunConfig,
 } from "./types";
-import { MAX_GRID_SIZE, MAX_CA_STEPS, maxHorizon } from "./limits";
+import {
+  MAX_GRID_SIZE,
+  MAX_CA_STEPS,
+  MAX_EVALUATION_WORKERS,
+  maxHorizon,
+} from "./limits";
 
 /** Outer-totalistic Moore CA: configurable states, zero-quiescence and zero halo. */
 export const DEFAULT_RUN_CONFIG: RunConfig = {
@@ -281,7 +286,12 @@ export function validateRunConfig(value: unknown): RunConfig {
       "Random seed",
     ),
     cacheSize: integer(v.cacheSize, 0, 8192, "Cache size"),
-    evaluationWorkers: integer(v.evaluationWorkers, 1, 6, "Evaluation workers"),
+    evaluationWorkers: integer(
+      v.evaluationWorkers,
+      1,
+      MAX_EVALUATION_WORKERS,
+      "Evaluation workers",
+    ),
     maxGenerations: integer(
       v.maxGenerations,
       0,

@@ -1366,94 +1366,98 @@ test(
   },
 );
 
-test(
-  "three active jobs and six evaluators respect hard caps and coordinator CPU reservations",
-  // Native worker termination and durable pauses share the VM with live research.
-  // Keep each progress poll bounded; allow time for all sequential shutdowns.
-  { timeout: 60_000 },
-  async (t) => {
-    if (availableParallelism() < 8) {
-      t.skip(
-        "six evaluators, coordinator and reserved preview capacity require eight native CPU slots",
-      );
-      return;
-    }
-    const cpuBudget = 7;
-    const f = await fixture(t, {
-      cpuBudget,
-      maxEvaluationWorkers: 6,
-      maxRuns: 3,
-    });
-    const jobs: RunDetail[] = [];
-    for (let i = 0; i < 4; i++)
-      jobs.push(
-        await create(
+for (const workerLimit of [6, 13])
+  test(
+    `three active jobs and ${workerLimit} evaluators respect hard caps and coordinator CPU reservations`,
+    // Native worker termination and durable pauses share the VM with live research.
+    // Keep each progress poll bounded; allow time for all sequential shutdowns.
+    { timeout: 60_000 },
+    async (t) => {
+      if (availableParallelism() < workerLimit + 2) {
+        t.skip(
+          `${workerLimit} evaluators need a coordinator and reserved preview capacity`,
+        );
+        return;
+      }
+      const cpuBudget = workerLimit + 1;
+      const f = await fixture(t, {
+        cpuBudget,
+        maxEvaluationWorkers: workerLimit,
+        maxRuns: 3,
+      });
+      const jobs: RunDetail[] = [];
+      for (let i = 0; i < 4; i++)
+        jobs.push(
+          await create(
+            f.server,
+            tiny({ name: `Fixture simultaneous ${i}` }),
+            true,
+          ),
+        );
+      for (const run of jobs.slice(0, 3))
+        await until(
           f.server,
-          tiny({ name: `Fixture simultaneous ${i}` }),
-          true,
-        ),
+          run.summary.id,
+          (detail) => detail.summary.generation >= 1,
+        );
+      let health = await api<{
+        activeRuns: number;
+        workers: number;
+        evaluationWorkers: number;
+        cpuBudget: number;
+        queuedRuns: number;
+      }>(f.server, "health");
+      assert.deepEqual(
+        [
+          health.activeRuns,
+          health.workers,
+          health.evaluationWorkers,
+          health.queuedRuns,
+        ],
+        [3, 6, 3, 1],
       );
-    for (const run of jobs.slice(0, 3))
+      assert.equal(
+        (await api(f.server, `runs/${jobs[3].summary.id}`)).summary.status,
+        "queued",
+      );
+      for (const run of jobs) await action(f.server, run.summary.id, "pause");
+      const full = await create(
+        f.server,
+        tiny({
+          name: `Fixture ${workerLimit} real evaluators`,
+          evaluationWorkers: workerLimit,
+        }),
+        true,
+      );
       await until(
         f.server,
-        run.summary.id,
+        full.summary.id,
         (detail) => detail.summary.generation >= 1,
       );
-    let health = await api<{
-      activeRuns: number;
-      workers: number;
-      evaluationWorkers: number;
-      cpuBudget: number;
-      queuedRuns: number;
-    }>(f.server, "health");
-    assert.deepEqual(
-      [
-        health.activeRuns,
-        health.workers,
-        health.evaluationWorkers,
-        health.queuedRuns,
-      ],
-      [3, 6, 3, 1],
-    );
-    assert.equal(
-      (await api(f.server, `runs/${jobs[3].summary.id}`)).summary.status,
-      "queued",
-    );
-    for (const run of jobs) await action(f.server, run.summary.id, "pause");
-    const six = await create(
-      f.server,
-      tiny({ name: "Fixture six real evaluators", evaluationWorkers: 6 }),
-      true,
-    );
-    await until(
-      f.server,
-      six.summary.id,
-      (detail) => detail.summary.generation >= 1,
-    );
-    const extra = await create(
-      f.server,
-      tiny({ name: "Fixture blocked by total budget" }),
-      true,
-    );
-    assert.equal(extra.summary.status, "queued");
-    health = await api(f.server, "health");
-    assert.deepEqual(
-      [health.activeRuns, health.workers, health.evaluationWorkers],
-      [1, 7, 6],
-    );
-    assert.ok(health.workers <= health.cpuBudget);
-    assert.equal(
-      (await api<RunList>(f.server, "runs")).capacity.allocatedWorkers,
-      6,
-    );
-    await action(f.server, six.summary.id, "pause");
-    await until(
-      f.server,
-      extra.summary.id,
-      (detail) => detail.summary.generation >= 1,
-    );
-  },
-);
+      const extra = await create(
+        f.server,
+        tiny({ name: "Fixture blocked by total budget" }),
+        true,
+      );
+      assert.equal(extra.summary.status, "queued");
+      health = await api(f.server, "health");
+      assert.deepEqual(
+        [health.activeRuns, health.workers, health.evaluationWorkers],
+        [1, workerLimit + 1, workerLimit],
+      );
+      assert.ok(health.workers <= health.cpuBudget);
+      assert.equal(
+        (await api<RunList>(f.server, "runs")).capacity.allocatedWorkers,
+        workerLimit,
+      );
+      await action(f.server, full.summary.id, "pause");
+      await until(
+        f.server,
+        extra.summary.id,
+        (detail) => detail.summary.generation >= 1,
+      );
+    },
+  );
 
 test(
   "publication is bounded near 2 Hz and a non-reading real WebSocket cannot backpressure genetics",

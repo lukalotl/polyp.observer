@@ -70,13 +70,13 @@ function field(label: string, value: string | number) {
     target: { value: String(value) },
   });
 }
-function dialog(initial = smallConfig()) {
+function dialog(initial = smallConfig(), maxWorkers = 6) {
   const onCreate = vi.fn().mockResolvedValue(undefined),
     onClose = vi.fn();
   const view = render(
     <RunDialog
       initial={initial}
-      maxWorkers={6}
+      maxWorkers={maxWorkers}
       busy={false}
       onCreate={onCreate}
       onClose={onClose}
@@ -91,6 +91,15 @@ async function submit(name = "Create paused") {
 }
 
 describe("complete, immutable run configuration", () => {
+  it("allows thirteen CPU workers when advertised by the server", async () => {
+    const { onCreate } = dialog(smallConfig(), 13);
+    expect(
+      screen.getByLabelText("CPU workers", { exact: true }),
+    ).toHaveAttribute("max", "13");
+    field("CPU workers", 13);
+    await submit();
+    expect(onCreate.mock.calls[0][0].evaluationWorkers).toBe(13);
+  });
   it("defaults new drafts to random rules and enables the preserved founder only on request", async () => {
     const initial = structuredClone(DEFAULT_RUN_CONFIG);
     const { onCreate } = dialog(initial);

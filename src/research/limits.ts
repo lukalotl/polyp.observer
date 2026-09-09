@@ -2,6 +2,8 @@
 export const MAX_GRID_SIZE = 1025;
 export const MAX_CA_STEPS = 65_536;
 export const MAX_FIXTURE_SITES = 1_073_741_824;
+/** The server further bounds this by CPU capacity and coordinator overhead. */
+export const MAX_EVALUATION_WORKERS = 13;
 
 export function maxHorizon(size: number): number {
   return Number.isFinite(size) && size > 0

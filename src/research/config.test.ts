@@ -91,7 +91,7 @@ describe("pinned, bounded research configuration", () => {
     { validationSeeds: [Number.MAX_SAFE_INTEGER + 1] },
     { randomSeed: NaN },
     { evaluationWorkers: 0 },
-    { evaluationWorkers: 7 },
+    { evaluationWorkers: 14 },
     { cacheSize: -1 },
     { cacheSize: 8193 },
     { maxGenerations: -1 },
@@ -150,7 +150,7 @@ describe("pinned, bounded research configuration", () => {
         populationSize: 512,
         eliteCount: 256,
         immigrantRate: 0.5,
-        evaluationWorkers: 6,
+        evaluationWorkers: 13,
         trainingSeeds: Array.from(
           { length: 8 },
           (_, i) => Number.MIN_SAFE_INTEGER + i,

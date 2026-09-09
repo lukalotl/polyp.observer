@@ -290,7 +290,7 @@ the streaming memory bound: both per-axis maxima cannot be used together.
 
 Elites 0..population−1; tournament 2..min(32,population); mutation/crossover rates
 0..1; immigrant rate 0..0.5 with the floored count fitting non-elite slots; 1..8
-training and 0..8 validation seeds; workers 1..6; cache 0..8192; maxGenerations
+training and 0..8 validation seeds; workers 1..13 (also bounded by server capacity); cache 0..8192; maxGenerations
 0..1e9; checkpoint seconds 2..300; snapshotEvery 1..10000; retainedSnapshots 2..128;
 nonblank name 1..80 characters; finite legacy weights 0..10 with positive sum.
 Composable incentive weights use 0..10,000 with at least one positive weight.

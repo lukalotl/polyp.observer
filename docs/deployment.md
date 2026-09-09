@@ -13,7 +13,7 @@ normal same-origin workspace development setup.
 
 The production service uses a separate checkout and run directory, so edits and
 experiments in the development checkout do not become public automatically.
-It is limited to one active run, six evaluation workers and seven training
+It is limited to one active run, thirteen evaluation workers and fourteen training
 threads. The website is a shared research workbench: its visitors share the
 production registry and controls. Development checkpoints are not copied into
 the production datastore.
@@ -26,13 +26,13 @@ After `npm ci && npm run build` in the production checkout:
 PUBLIC_ORIGIN=https://popyl-observer.vercel.app \
 PUBLIC_ORIGINS=https://polyp-observer-git-deploy-vercel-lukalots-projects.vercel.app,https://polyp.observer \
 POLYP_RUNS_DIR=.polyp/production \
-POLYP_MAX_ACTIVE_RUNS=1 POLYP_MAX_EVALUATION_WORKERS=6 POLYP_CPU_BUDGET=7 \
+POLYP_MAX_ACTIVE_RUNS=1 POLYP_MAX_EVALUATION_WORKERS=13 POLYP_CPU_BUDGET=14 \
 npm start -- --host 0.0.0.0 --port 4180 --strictPort
 ```
 
-The six-worker limit is a ceiling; each run chooses its CPU worker count in
-the run creator. The seventh training thread coordinates evaluation, with one
-CPU reserved for previews on this eight-CPU VM. Existing run configurations keep
+The thirteen-worker limit is a ceiling; each run chooses its CPU worker count in
+the run creator. The fourteenth training thread coordinates evaluation, leaving
+two CPUs for previews and other work on this sixteen-CPU VM. Existing run configurations keep
 their worker count; use Fork to create a run with a different count.
 
 `PUBLIC_ORIGIN` and comma-separated `PUBLIC_ORIGINS` accept exact origins for
