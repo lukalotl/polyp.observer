@@ -27,6 +27,7 @@ import {
   MAX_RUNS,
   date,
   fields,
+  metricsDisagree,
   record,
   validateCheckpoint,
 } from "./validation";
@@ -234,9 +235,10 @@ export class RunStore {
         cacheHits: snapshot.metrics.cacheHits,
       });
       const checked = generationSnapshot(archiveState);
-      for (const [key, entry] of Object.entries(checked.metrics))
-        if (snapshot.metrics[key] !== entry)
-          throw new Error("Archived metrics conflict with population.");
+      // Archives written before the breeding-diversity metrics existed still
+      // load; the recomputed snapshot backfills them.
+      if (metricsDisagree(snapshot.metrics, checked.metrics))
+        throw new Error("Archived metrics conflict with population.");
       archive.snapshot = checked;
       previous = generation;
     }

@@ -433,6 +433,12 @@ export async function startResearchServer(options: ServerOptions = {}) {
           "elapsedMs",
           "generationMs",
           "evalsPerSecond",
+          // Search-health columns; blank in rows retained from older servers.
+          "distinctElites",
+          "bestCopies",
+          "generationsSinceImprovement",
+          "generationEvaluations",
+          "generationRepeats",
         ] as const;
         res.writeHead(200, {
           "Content-Type": "text/csv; charset=utf-8",

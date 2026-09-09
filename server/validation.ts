@@ -24,6 +24,37 @@ export const IMPROVEMENT_LIMIT = 256;
 export const MAX_RUNS = 64;
 export const MAX_FILE_BYTES = 64 * 1024 * 1024;
 export const MAX_STORAGE_BYTES = 1024 * 1024 * 1024;
+/**
+ * Breeding-diversity metrics added to GenerationMetrics after older checkpoints
+ * and archives were written. Stored points may omit them; when present they are
+ * compared against the engine exactly like every other metric.
+ */
+export const OPTIONAL_METRIC_KEYS = [
+  "distinctElites",
+  "bestCopies",
+  "generationsSinceImprovement",
+] as const;
+/** Per-generation evaluation deltas recorded by the manager; absent in older history. */
+export const OPTIONAL_HISTORY_KEYS = [
+  ...OPTIONAL_METRIC_KEYS,
+  "generationEvaluations",
+  "generationRepeats",
+] as const;
+/** Older snapshots lack the optional metrics; every present key must still agree. */
+export function metricsDisagree(
+  stored: Record<string, unknown>,
+  actual: object,
+): string | null {
+  for (const [key, entry] of Object.entries(actual)) {
+    if (
+      (OPTIONAL_METRIC_KEYS as readonly string[]).includes(key) &&
+      !Object.hasOwn(stored, key)
+    )
+      continue;
+    if (stored[key] !== entry) return key;
+  }
+  return null;
+}
 export class HttpError extends Error {
   constructor(
     public status: number,
@@ -198,6 +229,13 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
     ])
       if (typeof point[key] !== "number" || point[key] < 0)
         throw new Error(`Invalid history ${key}.`);
+    // Older history omits these; a present value must be a non-negative count.
+    for (const key of OPTIONAL_HISTORY_KEYS)
+      if (
+        Object.hasOwn(point, key) &&
+        (!Number.isSafeInteger(point[key]) || (point[key] as number) < 0)
+      )
+        throw new Error(`Invalid history ${key}.`);
     if (
       point.validationBest !== null &&
       typeof point.validationBest !== "number"
@@ -211,10 +249,14 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
       throw new Error(
         "Checkpoint must include its current generation metrics.",
       );
-    const actual = generationSnapshot(state).metrics;
-    for (const [key, entry] of Object.entries(actual))
-      if (last[key] !== entry)
-        throw new Error(`Current history ${key} disagrees with engine state.`);
+    const disagreement = metricsDisagree(
+      last,
+      generationSnapshot(state).metrics,
+    );
+    if (disagreement)
+      throw new Error(
+        `Current history ${disagreement} disagrees with engine state.`,
+      );
   } else if (value.history.length || value.improvements.length)
     throw new Error("Uninitialized checkpoint cannot contain history.");
   previous = -1;

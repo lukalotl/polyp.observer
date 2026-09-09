@@ -254,7 +254,14 @@ export class RunManager extends EventEmitter {
         run.summary.status === "queued"
           ? this.queue.indexOf(run.summary.id) + 1
           : null,
+      // Search-health mirrors of the latest metrics; absent without a population.
+      generationsSinceImprovement: metrics?.generationsSinceImprovement,
+      distinctElites: metrics?.distinctElites,
     });
+    if (!metrics) {
+      delete run.summary.generationsSinceImprovement;
+      delete run.summary.distinctElites;
+    }
   }
   private changed(run?: Run): void {
     if (run) {
@@ -584,6 +591,7 @@ export class RunManager extends EventEmitter {
               message.generationMs,
             );
             job.generationStarted = null;
+            const stalled = this.stalled(run);
             if (job.mode === "step")
               void this.halt(
                 run,
@@ -598,6 +606,14 @@ export class RunManager extends EventEmitter {
                 run,
                 "completed",
                 "Generation limit reached.",
+              ).catch((error) => this.fail(run, error));
+            else if (stalled !== null)
+              // A stall is a pause, never completion: start resumes the same
+              // population and the modulo rule keeps it from re-pausing at once.
+              void this.halt(
+                run,
+                "paused",
+                `Stalled: ${stalled} generations without improvement.`,
               ).catch((error) => this.fail(run, error));
           } else if (message.type === "failed")
             void this.fail(run, new Error(message.error));
@@ -616,13 +632,27 @@ export class RunManager extends EventEmitter {
       this.changed(run);
     }
   }
+  /**
+   * Generations since the champion improved when a continuous run has reached
+   * a whole multiple of `stallGenerations`; null otherwise (including step mode).
+   */
+  private stalled(run: Run): number | null {
+    const limit = run.config.stallGenerations ?? 0;
+    const since = run.snapshot?.metrics.generationsSinceImprovement ?? 0;
+    return run.job?.mode === "run" && limit > 0 && since > 0 && since % limit === 0
+      ? since
+      : null;
+  }
   private commit(
     run: Run,
     state: EngineState,
     snapshot: GenerationSnapshot,
     generationMs: number,
   ): void {
-    const priorBest = run.state?.champion.fitness ?? -Infinity;
+    const previous = run.state;
+    const priorBest = previous?.champion.fitness ?? -Infinity;
+    const fixtureCount =
+      run.config.trainingSeeds.length + run.config.validationSeeds.length;
     run.elapsedMs += generationMs;
     run.state = state;
     run.snapshot = snapshot;
@@ -631,6 +661,11 @@ export class RunManager extends EventEmitter {
       elapsedMs: run.elapsedMs,
       generationMs,
       evalsPerSecond: (state.evaluations * 1000) / Math.max(1, run.elapsedMs),
+      // Per-generation deltas: the engine counts fixture evaluations, so divide
+      // by the fixture count to recover unique genomes actually scored.
+      generationEvaluations:
+        (state.evaluations - (previous?.evaluations ?? 0)) / fixtureCount,
+      generationRepeats: state.cacheHits - (previous?.cacheHits ?? 0),
     };
     run.history = [...run.history, point].slice(-HISTORY_LIMIT);
     if (state.champion.fitness > priorBest)
