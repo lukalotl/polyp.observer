@@ -165,7 +165,12 @@ export interface GenerationMetrics {
   uniqueGenomes: number;
   evaluations: number;
   cacheHits: number;
-  /** Distinct genomes among the `eliteCount` fittest individuals (0 with no elites). */
+  /**
+   * Distinct genomes among the `eliteCount` fittest individuals by rank, i.e.
+   * how converged the head of the population is (0 with no elites). Under
+   * "distinct" elitism the retained elites are distinct by construction, so this
+   * can read below `eliteCount` when copies of the leader crowd the top ranks.
+   */
   distinctElites: number;
   /** Individuals sharing the genome of the population's fittest member. */
   bestCopies: number;
