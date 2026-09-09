@@ -1413,6 +1413,10 @@ test("weighted custom incentives are edited safely and scored by the VM", async 
   await editor.getByLabel("Math formula").fill("");
   await editor.getByRole("button", { name: "occupancy", exact: true }).click();
   await expect(editor.getByLabel("Math formula")).toHaveValue("occupancy");
+  await editor.getByLabel("Math formula").fill("");
+  await editor.getByRole("button", { name: "reuseAlive", exact: true }).click();
+  await expect(editor.getByLabel("Math formula")).toHaveValue("reuseAlive");
+  await expect(editor.getByRole("status")).toHaveText("Valid formula");
   await editor
     .getByLabel("Math formula")
     .fill("(exposedCells / area) / (1 + reuseEvents)");
@@ -1444,9 +1448,22 @@ test("weighted custom incentives are edited safely and scored by the VM", async 
   await expect(
     scoring.getByRole("list", { name: "Scoring incentives" }),
   ).toContainText("1 / (1 + reuseEvents)");
+  await expect(scoring).toContainText(
+    "Continuous survival and changes between live types do not count.",
+  );
   await scoring
-    .getByRole("button", { name: "Remove incentive 3: Avoid repeated reuse" })
+    .getByRole("button", { name: "Remove incentive 3: Avoid reuse after death" })
     .click();
+  await scoring
+    .getByLabel("Add incentive", { exact: true })
+    .selectOption("avoidReuseAlive");
+  await expect(
+    scoring.getByRole("list", { name: "Scoring incentives" }),
+  ).toContainText("1 / (1 + reuseAlive)");
+  await expect(scoring).toContainText(
+    "Continuous survival, changes between live types and returns after death all count.",
+  );
+  await screenArtifact(page, testInfo, "any-cell-reuse-incentive");
   // A nested modal must contain keyboard focus and Escape must preserve the run draft.
   await scoring
     .getByLabel("Add incentive", { exact: true })
@@ -1492,9 +1509,10 @@ test("weighted custom incentives are edited safely and scored by the VM", async 
       expression: "(exposedCells / area) / (1 + reuseEvents)",
       weight: 3,
     },
+    presetIncentive("avoidReuseAlive"),
   ]);
   const evaluated = await step(page, request, run.summary.id);
-  const expected = (1 / 7 + 3 / 81) / 4;
+  const expected = (1 / 7 + 3 / 81 + 1) / 5;
   expect(evaluated.snapshot!.champion.fitness).toBeCloseTo(expected, 14);
   const saved = await checkpoint(request, run.summary.id);
   expect(saved.config.incentives).toEqual(run.config.incentives);

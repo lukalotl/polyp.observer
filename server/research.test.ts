@@ -1740,7 +1740,7 @@ test(
         {
           name: "Persistence",
           expression:
-            "(exposedCells / area + persistence) / (2 * (1 + reuseEvents + reusedCells + cellDeaths))",
+            "(exposedCells / area + persistence) / (2 * (1 + reuseEvents + reusedCells + reuseAlive + cellDeaths))",
           weight: 1,
         },
       ],

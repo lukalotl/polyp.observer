@@ -17,7 +17,7 @@ const config = (overrides: Partial<RunConfig> = {}): RunConfig => ({
   ...overrides,
 });
 
-describe("spatial reuse after death", () => {
+describe("spatial reuse with and without death", () => {
   it("distinguishes first occupation, death, persistent occupation and changes between live states", () => {
     const dead = Array(45).fill(0);
     const survivor = dead.slice();
@@ -30,12 +30,14 @@ describe("spatial reuse after death", () => {
         exposedCells: 1,
         reusedCells: 0,
         reuseEvents: 0,
+        reuseAlive: 7,
         cellDeaths: 0,
       });
     expect(streamTrajectory(dead, config(), 1729)).toMatchObject({
       exposedCells: 1,
       reusedCells: 0,
       reuseEvents: 0,
+      reuseAlive: 0,
       cellDeaths: 1,
     });
     // An empty soup never dies; padding after extinction never repeats a death.
@@ -45,6 +47,7 @@ describe("spatial reuse after death", () => {
       exposedCells: 0,
       reusedCells: 0,
       reuseEvents: 0,
+      reuseAlive: 0,
       cellDeaths: 0,
     });
     expect(
@@ -53,8 +56,81 @@ describe("spatial reuse after death", () => {
       exposedCells: 9,
       reusedCells: 0,
       reuseEvents: 0,
+      reuseAlive: 0,
       cellDeaths: 9,
     });
+  });
+  it.each([2, 5, 16])(
+    "penalizes continuous occupation equally across live types with %i states",
+    (stateCount) => {
+      for (const nextState of [1, stateCount - 1]) {
+        const genome = Array(stateCount * 9).fill(0);
+        genome[9] = nextState;
+        if (nextState !== 1) genome[nextState * 9] = 1;
+        const cfg = config({ stateCount, seedGenome: genome });
+        expect(streamTrajectory(genome, cfg, 1729)).toMatchObject({
+          exposedCells: 1,
+          reuseEvents: 0,
+          reuseAlive: 7,
+          cellDeaths: 0,
+        });
+        expect(
+          evaluateGenome(genome, {
+            ...cfg,
+            incentives: [presetIncentive("avoidReuseAlive")],
+          }).fitness,
+        ).toBe(1 / 8);
+        expect(
+          evaluateGenome(genome, {
+            ...cfg,
+            incentives: [presetIncentive("avoidRepeatedReuse")],
+          }).fitness,
+        ).toBe(1);
+      }
+    },
+  );
+  it("scores zero reuse as one and counts occupation only through the cutoff", () => {
+    const genome = Array(45).fill(0);
+    genome[9] = 2;
+    genome[18] = 3;
+    genome[27] = 4;
+    genome[36] = 1;
+    for (const steps of [8, 9, 128]) {
+      const cfg = config({ steps });
+      expect(streamTrajectory(genome, cfg, 1729).reuseAlive).toBe(steps - 1);
+      expect(
+        evaluateGenome(genome, {
+          ...cfg,
+          incentives: [presetIncentive("avoidReuseAlive")],
+        }).fitness,
+      ).toBe(1 / steps);
+    }
+    for (const reuseAlive of [0, 1, 2]) {
+      const transient = Array(45).fill(0);
+      for (let state = 1; state <= reuseAlive; state++)
+        transient[state * 9] = state + 1;
+      expect(streamTrajectory(transient, config(), 1729)).toMatchObject({
+        reuseAlive,
+        reuseEvents: 0,
+        cellDeaths: 1,
+      });
+      expect(
+        evaluateGenome(transient, {
+          ...config(),
+          incentives: [presetIncentive("avoidReuseAlive")],
+        }).fitness,
+      ).toBe(1 / (1 + reuseAlive));
+    }
+    for (const cfg of [
+      config(),
+      config({ seed: "soup", soupSize: 1, trainingSeeds: [7] }),
+    ])
+      expect(
+        evaluateGenome(Array(45).fill(0), {
+          ...cfg,
+          incentives: [presetIncentive("avoidReuseAlive")],
+        }).fitness,
+      ).toBe(1);
   });
   it("counts a known Life blinker once per reused position and again on each later return", () => {
     const life = Array(18).fill(0);
@@ -76,10 +152,12 @@ describe("spatial reuse after death", () => {
     expect(preview.simulation.population).toEqual(Array(8).fill(3));
     // Two end cells die each transition. The center never dies. At t=1 two
     // new positions are born; the next six turns each reclaim two old ones.
+    // All reuse also counts the center on all seven transitions: 12 + 7 = 19.
     expect(streamTrajectory(life, cfg, 424)).toMatchObject({
       exposedCells: 5,
       reusedCells: 4,
       reuseEvents: 12,
+      reuseAlive: 19,
       cellDeaths: 14,
     });
     const longer = streamTrajectory(life, { ...cfg, steps: 12 }, 424);
@@ -87,6 +165,7 @@ describe("spatial reuse after death", () => {
       exposedCells: 5,
       reusedCells: 4,
       reuseEvents: 20,
+      reuseAlive: 31,
       cellDeaths: 22,
     });
     expect(
@@ -101,6 +180,12 @@ describe("spatial reuse after death", () => {
         incentives: [presetIncentive("avoidRepeatedReuse")],
       }).fitness,
     ).toBe(1 / 13);
+    expect(
+      evaluateGenome(life, {
+        ...cfg,
+        incentives: [presetIncentive("avoidReuseAlive")],
+      }).fitness,
+    ).toBe(1 / 20);
     expect(
       evaluateGenome(life, {
         ...cfg,
@@ -137,11 +222,17 @@ describe("spatial reuse after death", () => {
         const full = simulate(genome, { ...cfg, randomSeed: index - 4 });
         let reusedCells = 0,
           reuseEvents = 0,
+          reuseAlive = 0,
           cellDeaths = 0;
         for (let cell = 0; cell < cfg.size ** 2; cell++) {
           let deaths = 0,
-            returns = 0;
+            returns = 0,
+            everAlive = Boolean(full.layers[0][cell]);
           for (let time = 1; time < cfg.steps; time++) {
+            if (full.layers[time][cell]) {
+              if (everAlive) reuseAlive++;
+              everAlive = true;
+            }
             if (full.layers[time - 1][cell] && !full.layers[time][cell])
               deaths++;
             if (
@@ -158,6 +249,7 @@ describe("spatial reuse after death", () => {
         expect(streamTrajectory(genome, cfg, index - 4)).toMatchObject({
           reusedCells,
           reuseEvents,
+          reuseAlive,
           cellDeaths,
         });
         const fitness = evaluateGenome(genome, {
@@ -165,12 +257,15 @@ describe("spatial reuse after death", () => {
           incentives: [
             {
               name: "Reuse pressure",
-              expression: "1 / (1 + reusedCells + reuseEvents + cellDeaths)",
+              expression:
+                "1 / (1 + reusedCells + reuseEvents + reuseAlive + cellDeaths)",
               weight: 1,
             },
           ],
         }).fitness;
-        expect(fitness).toBe(1 / (1 + reusedCells + reuseEvents + cellDeaths));
+        expect(fitness).toBe(
+          1 / (1 + reusedCells + reuseEvents + reuseAlive + cellDeaths),
+        );
       }
   });
 });

@@ -95,7 +95,8 @@ invalid logarithm/square root) gives **only that incentive** zero on that fixtur
 
 The variable catalog is shared by the evaluator and modal in `expressions.ts`:
 normalized diversity, activity, density, variation, persistence and occupancy;
-raw exposedCells, lifetime, initial/final/peak/mean population, population variance and total
+raw exposedCells, reusedCells, reuseEvents, reuseAlive, cellDeaths, lifetime,
+initial/final/peak/mean population, population variance and total
 occupied cell-timesteps; extinction and spatial/cutoff-contact indicators; and
 size, area, steps and state count. All population measurements include the seed
 and empty timesteps through the cutoff. Indicators are numeric 0 or 1.
@@ -118,15 +119,27 @@ change scoring, and legacy saved metrics/configurations are unchanged.
 having been occupied and then empty. `reuseEvents` counts every such return, so
 repeated death/rebirth cycles at the same position add more events, but only one
 reused position. An empty gap must span at least one recorded timestep; changing
-between two live states is neither a death nor a reuse. A position's first
-occupation (including the seed) is never reuse. `cellDeaths` counts every observed
+between two live states adds neither a death nor a `reuseEvents` event. A
+position's first occupation (including the seed) is never reuse. `cellDeaths` counts every observed
 live-to-empty transition, including the first death, even without a later return.
 No death after the simulation cutoff is inferred. Each fixture owns independent
 history; empty trailing timesteps don't repeat death events.
 
-The Avoid cell reuse preset uses `1 - reusedCells / max(1, exposedCells)` to
-penalize each reused position once. Avoid repeated reuse uses
-`1 / (1 + reuseEvents)`, penalizing every return. Avoid cell deaths uses
+`reuseAlive` counts every occupied timestep at an X/Z position after its first
+occupation, regardless of cell type or whether it ever died. Continuous survival,
+changes between live types and returns after an empty gap all count. First
+occupation is free, including the seed; empty timesteps never count. A cell alive
+at the same position for 8 timesteps has `reuseAlive = 7` and `reuseEvents = 0`.
+The exact count is `totalCells - exposedCells`, requiring no extra history storage.
+As with the other counts, each fixture is independent and only timesteps through
+the scientific cutoff count, regardless of preview cropping.
+
+The Avoid reused positions after death preset uses
+`1 - reusedCells / max(1, exposedCells)` to penalize each reused position once.
+Avoid reuse after death uses `1 / (1 + reuseEvents)`, penalizing every return
+after an empty timestep. Avoid any cell reuse uses `1 / (1 + reuseAlive)`,
+penalizing every occupation after the first, even without death. Both reciprocal
+incentives score 1 for 0 events, 0.5 for 1, and 0.333 for 2. Avoid cell deaths uses
 `1 / (1 + cellDeaths)`, penalizing deaths even without a subsequent return.
 These are editable positive rewards for fewer events (incentives maximize their
 result). Alone they can favor trivial or empty trajectories; combine them with

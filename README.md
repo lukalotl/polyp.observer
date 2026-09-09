@@ -54,7 +54,9 @@ The public website uses Vercel plus a persistent VM backend. See
   clamped to 0–1 and combined by normalized weights. Finite longevity is the
   default; complexity, growth, finite cell counts, light exposure and reuse
   penalties are available. `exposedCells` counts the history footprint;
-  `reusedCells`, `reuseEvents` and `cellDeaths` track reuse and death separately.
+  `reuseAlive` counts every occupied timestep after a location's first occupation,
+  regardless of cell type or death. `reuseEvents` counts only returns after death;
+  `reusedCells` counts those positions once, and `cellDeaths` counts deaths.
   Existing runs retain their recorded scoring configuration.
 - **Hard constraints**: the scoring section includes independent spatial-edge
   and time-cutoff disqualification switches, both on by default. A rejected

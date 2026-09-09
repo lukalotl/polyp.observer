@@ -16,7 +16,11 @@ export const VARIABLES = [
   ],
   [
     "reuseEvents",
-    "Every empty-to-live return to a previously occupied X/Z position; repeated returns count again",
+    "Every return to a previously occupied X/Z position after an empty timestep; continuous survival and live-state changes do not count",
+  ],
+  [
+    "reuseAlive",
+    "Every occupied timestep after an X/Z position's first occupation, including continuous survival, live-state changes and returns after death",
   ],
   [
     "cellDeaths",

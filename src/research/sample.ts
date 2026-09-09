@@ -55,6 +55,7 @@ export function sampleTrajectory(
     exposedCells: _exposedCells,
     reusedCells: _reusedCells,
     reuseEvents: _reuseEvents,
+    reuseAlive: _reuseAlive,
     cellDeaths: _cellDeaths,
     ...trajectory
   } = streamTrajectory(genome, config, seed, (time, halo, occupied, bounds) => {

@@ -10,6 +10,8 @@ export type Trajectory = Omit<Simulation, "layers" | "population"> & {
   reusedCells: number;
   /** All returns to a previously occupied position after an empty timestep. */
   reuseEvents: number;
+  /** Every occupied timestep after a position's first occupation, regardless of state or death. */
+  reuseAlive: number;
   /** All observed live-to-empty transitions; no inferred death after the cutoff. */
   cellDeaths: number;
 };
@@ -212,6 +214,9 @@ export function streamTrajectory(
     exposedCells,
     reusedCells,
     reuseEvents,
+    // Each position gets one free occupation; all remaining cell-timesteps
+    // reuse it, including uninterrupted survival and changes between live states.
+    reuseAlive: occupied - exposedCells,
     cellDeaths,
   };
 }

@@ -70,6 +70,7 @@ function fixture(
       exposedCells: simulation.exposedCells,
       reusedCells: simulation.reusedCells,
       reuseEvents: simulation.reuseEvents,
+      reuseAlive: simulation.reuseAlive,
       cellDeaths: simulation.cellDeaths,
       meanPopulation: mean,
       populationVariance: variance,

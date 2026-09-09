@@ -9,17 +9,24 @@ export interface Incentive {
 export const INCENTIVE_PRESETS = [
   {
     id: "avoidReuse",
-    name: "Avoid cell reuse",
+    name: "Avoid reused positions after death",
     expression: "1 - reusedCells / max(1, exposedCells)",
     description:
       "Reward keeping visited positions free of reuse after death. Each position is penalized once; empty trajectories also score 1, so combine with light exposure or growth.",
   },
   {
     id: "avoidRepeatedReuse",
-    name: "Avoid repeated reuse",
+    name: "Avoid reuse after death",
     expression: "1 / (1 + reuseEvents)",
     description:
-      "Reward avoiding every return after death: 0 reuse events scores 1, 1 scores 0.5, and 2 scores 0.333. Each repeated return adds another penalty.",
+      "Count every return to a previously occupied location after an empty timestep, regardless of cell type. Continuous survival and changes between live types do not count. 0 events scores 1, 1 scores 0.5, and 2 scores 0.333.",
+  },
+  {
+    id: "avoidReuseAlive",
+    name: "Avoid any cell reuse",
+    expression: "1 / (1 + reuseAlive)",
+    description:
+      "Count every occupied timestep after a location's first occupation, regardless of cell type or death. Continuous survival, changes between live types and returns after death all count. 0 events scores 1, 1 scores 0.5, and 2 scores 0.333.",
   },
   {
     id: "avoidDeaths",
