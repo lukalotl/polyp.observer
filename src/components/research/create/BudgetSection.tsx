@@ -54,7 +54,7 @@ export default function BudgetSection({
           min={0}
           max={1_000_000_000}
           error={errorFor("Stall pause")}
-          note="GA generations without a new record before the run pauses itself; 0 = never. A stalled run is paused, not completed: its population is preserved and Start resumes it."
+          note="GA generations without a new record before the run pauses itself; 0 = never. A stalled run is paused, not completed: its population is preserved and Start resumes it for another full window. Single steps never trigger it."
           onChange={(value) => update("stallGenerations", value)}
         />
         <NumericField

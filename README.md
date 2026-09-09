@@ -107,7 +107,9 @@ The public website uses Vercel plus a persistent VM backend. See
   first failure stops the sequence and keeps the dialog open.
 - **Stall pause**: a run with a stall pause set pauses itself after that many
   generations without a new record. It is paused, not completed: the population
-  is preserved and Start resumes it.
+  is preserved and Start resumes it for another full window of the same length.
+  Single steps never trigger it, and a coinciding generation limit completes the
+  run instead.
 - **Start / Pause / Step**: generation 0 evaluates the initial population;
   each following generation breeds from the retained population. A generation
   limit of `0` is unlimited. Closing every browser does not stop a run.
