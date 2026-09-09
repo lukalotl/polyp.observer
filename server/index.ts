@@ -160,6 +160,7 @@ export async function startResearchServer(options: ServerOptions = {}) {
           numberEnv("POLYP_MAX_EVALUATION_WORKERS"),
         maxRuns: options.maxRuns ?? numberEnv("POLYP_MAX_ACTIVE_RUNS"),
         cpuBudget: options.cpuBudget ?? numberEnv("POLYP_CPU_BUDGET"),
+        maxMemoryBytes: options.maxMemoryBytes,
       });
   const previews = manager ? new PreviewService() : null;
   if (manager) await manager.open();
@@ -330,6 +331,10 @@ export async function startResearchServer(options: ServerOptions = {}) {
           storedRuns: manager!.list().runs.length,
           maxWorkers: manager!.maxEvaluationWorkers,
           cpuBudget: manager!.cpuBudget,
+          memory: {
+            reservedBytes: manager!.reservedMemoryBytes,
+            limitBytes: manager!.maxMemoryBytes,
+          },
           modelVersion: MODEL_VERSION,
           capacity: manager!.list().capacity,
           recoveryErrors: manager!.store.recoveryErrors,

@@ -22,6 +22,12 @@ import {
 import { EvaluatorPool } from "./evaluator-pool";
 import { RunStore, type StoredRun } from "./store";
 import {
+  MAX_RESEARCH_MEMORY_BYTES,
+  MAX_RUN_MEMORY_BYTES,
+  maximumRunMemory,
+  retainedRunMemory,
+} from "./memory";
+import {
   HISTORY_LIMIT,
   IMPROVEMENT_LIMIT,
   MAX_RUNS,
@@ -57,6 +63,7 @@ export interface ManagerOptions {
   maxEvaluationWorkers?: number;
   maxRuns?: number;
   cpuBudget?: number;
+  maxMemoryBytes?: number;
 }
 const now = () => new Date().toISOString();
 function boundedOption(
@@ -74,6 +81,7 @@ export class RunManager extends EventEmitter {
   readonly maxEvaluationWorkers: number;
   readonly maxRuns: number;
   readonly cpuBudget: number;
+  readonly maxMemoryBytes: number;
   private runs = new Map<string, Run>();
   private queue: string[] = [];
   private closing = false;
@@ -92,6 +100,11 @@ export class RunManager extends EventEmitter {
       Math.min(MAX_EVALUATION_WORKERS, this.cpuBudget - 1),
     );
     this.maxRuns = boundedOption(options.maxRuns, 3, 3);
+    this.maxMemoryBytes = boundedOption(
+      options.maxMemoryBytes,
+      MAX_RESEARCH_MEMORY_BYTES,
+      MAX_RESEARCH_MEMORY_BYTES,
+    );
     this.store = new RunStore(options.dataDir);
     this.store.onLockLost = () => {
       console.error(
@@ -110,14 +123,6 @@ export class RunManager extends EventEmitter {
     }
     let reserved = 0;
     for (const stored of persisted) {
-      const bytes = this.reservation(stored.checkpoint.config);
-      reserved += bytes;
-      if (bytes > 64 * 1024 * 1024 || reserved > 512 * 1024 * 1024) {
-        this.store.recoveryErrors.push(
-          `${stored.summary.id}: memory reservation exceeds limits; skipped.`,
-        );
-        continue;
-      }
       const cp = stored.checkpoint;
       const status = stored.summary.status;
       const resume =
@@ -142,6 +147,17 @@ export class RunManager extends EventEmitter {
         stopReason: resume ? null : stored.summary.stopReason,
       };
       run.archives = stored.archives;
+      const bytes = retainedRunMemory(run);
+      if (
+        maximumRunMemory(run.config) > MAX_RUN_MEMORY_BYTES ||
+        reserved + bytes > this.maxMemoryBytes
+      ) {
+        this.store.recoveryErrors.push(
+          `${stored.summary.id}: retained memory reservation exceeds limits; skipped.`,
+        );
+        continue;
+      }
+      reserved += bytes;
       this.runs.set(run.summary.id, run);
       if (resume) {
         run.mode = "run";
@@ -260,6 +276,14 @@ export class RunManager extends EventEmitter {
   get totalWorkers(): number {
     return this.allocatedWorkers + this.activeRuns;
   }
+  get reservedMemoryBytes(): number {
+    return [...this.runs.values()].reduce(
+      (total, run) =>
+        total +
+        (run.job ? maximumRunMemory(run.config) : retainedRunMemory(run)),
+      0,
+    );
+  }
   list(): RunList {
     return {
       runs: [...this.runs.values()].map((run) => ({ ...run.summary })),
@@ -315,16 +339,6 @@ export class RunManager extends EventEmitter {
       );
     return snapshot;
   }
-  private reservation(config: RunConfig): number {
-    // Bound three genomes (offspring + parents), source mask and mutation trace.
-    const individualBytes = 2048 + Math.max(0, 9 * config.stateCount - 45) * 24;
-    return (
-      HISTORY_LIMIT * 512 +
-      IMPROVEMENT_LIMIT * individualBytes +
-      config.cacheSize * (768 + Math.max(0, 9 * config.stateCount - 45)) +
-      config.populationSize * individualBytes * (config.retainedSnapshots + 3)
-    );
-  }
   private writable(): void {
     if (this.closing)
       throw new HttpError(503, "Research manager is shutting down.");
@@ -362,22 +376,10 @@ export class RunManager extends EventEmitter {
     parent: string | null,
     start: boolean,
   ): Promise<RunDetail> {
-    const reservation = this.reservation(cp.config);
-    if (reservation > 64 * 1024 * 1024)
+    if (maximumRunMemory(cp.config) > MAX_RUN_MEMORY_BYTES)
       throw new HttpError(
         400,
         "Population, cache and retained snapshots exceed the 64 MiB run storage reservation; reduce retention or population.",
-      );
-    if (
-      [...this.runs.values()].reduce(
-        (total, run) => total + this.reservation(run.config),
-        reservation,
-      ) >
-      512 * 1024 * 1024
-    )
-      throw new HttpError(
-        409,
-        "Stored runs exhaust the 512 MiB research memory reservation.",
       );
     if (this.runs.size >= MAX_RUNS)
       throw new HttpError(
@@ -393,6 +395,11 @@ export class RunManager extends EventEmitter {
     const run = this.fromCheckpoint(id, cp, parent);
     if (run.snapshot)
       run.archives = [{ savedAt: now(), snapshot: run.snapshot }];
+    if (this.reservedMemoryBytes + retainedRunMemory(run) > this.maxMemoryBytes)
+      throw new HttpError(
+        409,
+        "Retained run data exhausts the research memory reservation.",
+      );
     this.runs.set(id, run);
     try {
       await this.persist(run);
@@ -513,6 +520,15 @@ export class RunManager extends EventEmitter {
         this.allocatedWorkers + run.config.evaluationWorkers >
           this.maxEvaluationWorkers ||
         this.totalWorkers + run.config.evaluationWorkers + 1 > this.cpuBudget
+      )
+        break;
+      // Queued runs hold only retained data. Reserve all future growth atomically
+      // at admission; keep that reservation until the workers have terminated.
+      if (
+        this.reservedMemoryBytes -
+          retainedRunMemory(run) +
+          maximumRunMemory(run.config) >
+        this.maxMemoryBytes
       )
         break;
       this.queue.shift();
