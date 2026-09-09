@@ -2,11 +2,19 @@ import { describe, expect, it } from "vitest";
 import type { HistoryPoint, Individual } from "../../research/types";
 import {
   alleleFrequencies,
+  distinctEliteScale,
+  fitnessGap,
+  formatPercent,
+  formatSigned,
+  GAP_EMPHASIS,
   geneCase,
   geneLabel,
+  historyReadout,
   historySegments,
+  historyValue,
   nearestGeneration,
   rankPopulation,
+  repeatShare,
   traceGene,
 } from "./visualizerData";
 
@@ -38,6 +46,7 @@ const individual = (id: string, genome: number[], fitness = 0): Individual => ({
 const point = (
   generation: number,
   validationBest: number | null,
+  extra: Partial<HistoryPoint> = {},
 ): HistoryPoint => ({
   generation,
   validationBest,
@@ -50,9 +59,13 @@ const point = (
   uniqueGenomes: 1,
   evaluations: 1,
   cacheHits: 0,
+  distinctElites: 1,
+  bestCopies: 1,
+  generationsSinceImprovement: 0,
   elapsedMs: 0,
   generationMs: 0,
   evalsPerSecond: 0,
+  ...extra,
 });
 
 describe("research visualization data", () => {
@@ -150,6 +163,89 @@ describe("research visualization data", () => {
     expect(nearestGeneration([0, 20, 100], 61)).toBe(100);
     expect(nearestGeneration([0, 20, 100], 60)).toBe(20);
     expect(nearestGeneration([], 3)).toBeNull();
+  });
+  it("derives repeat share only from recorded per-generation counts, never NaN", () => {
+    expect(
+      repeatShare({ generationEvaluations: 58, generationRepeats: 6 }),
+    ).toBeCloseTo(6 / 64);
+    expect(
+      repeatShare({ generationEvaluations: 0, generationRepeats: 62 }),
+    ).toBe(1);
+    expect(repeatShare({})).toBeNull();
+    expect(repeatShare({ generationEvaluations: 58 })).toBeNull();
+    expect(repeatShare({ generationRepeats: 6 })).toBeNull();
+    expect(
+      repeatShare({ generationEvaluations: 0, generationRepeats: 0 }),
+    ).toBeNull();
+    expect(formatPercent(6 / 64)).toBe("9.4%");
+    expect(formatPercent(null)).toBe("—");
+    expect(formatPercent(Number.NaN)).toBe("—");
+  });
+  it("signs the training-minus-held-out gap and leaves unevaluated held-out fitness as no gap", () => {
+    expect(fitnessGap({ fitness: 0.5, validationFitness: 0.3 })).toBeCloseTo(
+      0.2,
+    );
+    expect(fitnessGap({ fitness: 0.2, validationFitness: 0.35 })).toBeCloseTo(
+      -0.15,
+    );
+    expect(fitnessGap({ fitness: 0.5, validationFitness: null })).toBeNull();
+    expect(formatSigned(0.2)).toBe("+0.2000");
+    expect(formatSigned(-0.0123)).toBe("−0.0123");
+    expect(formatSigned(0)).toBe("+0.0000");
+    expect(formatSigned(null)).toBe("—");
+    expect(GAP_EMPHASIS).toBe(0.1);
+  });
+  it("normalizes distinct elites by elite count, then population size, then the largest recorded count", () => {
+    const history = [
+      point(0, null, { distinctElites: 1 }),
+      point(1, null, { distinctElites: 3 }),
+      point(2, null, { distinctElites: 2 }),
+    ];
+    expect(distinctEliteScale(history, { eliteCount: 4 })).toBe(4);
+    expect(
+      distinctEliteScale(history, { eliteCount: 4, populationSize: 64 }),
+    ).toBe(4);
+    expect(distinctEliteScale(history, { populationSize: 64 })).toBe(64);
+    expect(distinctEliteScale(history)).toBe(3);
+    expect(distinctEliteScale([])).toBe(1);
+    expect(distinctEliteScale(history, { eliteCount: 0 })).toBe(3);
+    expect(historyValue(history[2], "distinctElites", 4)).toBe(0.5);
+    expect(historyValue(history[2], "distinctElites", 64)).toBeCloseTo(
+      2 / 64,
+    );
+    expect(historyReadout(history[2], "distinctElites", { eliteCount: 4 })).toBe(
+      "2 / 4",
+    );
+    expect(
+      historyReadout(history[2], "distinctElites", { populationSize: 64 }),
+    ).toBe("2 / 64");
+    expect(historyReadout(history[2], "distinctElites")).toBe("2");
+    expect(historyReadout(history[2], "best")).toBe("0.0000");
+    const legacy = point(3, null);
+    delete (legacy as Partial<HistoryPoint>).distinctElites;
+    expect(historyValue(legacy, "distinctElites", 4)).toBeNull();
+    expect(historyReadout(legacy, "distinctElites", { eliteCount: 4 })).toBe(
+      "—",
+    );
+  });
+  it("breaks repeat-share lines where a generation's counts were not recorded", () => {
+    const history = [
+      point(0, null, { generationEvaluations: 60, generationRepeats: 4 }),
+      point(1, null, { generationEvaluations: 50, generationRepeats: 14 }),
+      point(2, null),
+      point(3, null, { generationEvaluations: 40, generationRepeats: 24 }),
+    ];
+    expect(
+      historySegments(history, "repeatShare").map((segment) =>
+        segment.map((item) => item.generation),
+      ),
+    ).toEqual([[0, 1], [3]]);
+    expect(historyValue(history[3], "repeatShare")).toBeCloseTo(0.375);
+    expect(historyValue(history[2], "repeatShare")).toBeNull();
+    expect(historyReadout(history[3], "repeatShare")).toBe("37.5%");
+    expect(historyReadout(history[2], "repeatShare")).toBe("—");
+    expect(historySegments(history, "distinctElites", 4)).toHaveLength(1);
+    expect(historySegments(history, "best")[0]).toHaveLength(4);
   });
 });
 
