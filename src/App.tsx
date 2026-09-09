@@ -24,6 +24,7 @@ import {
 import Volume from "./components/Volume";
 import { layoutTimeLayers } from "./rendering/volumeData";
 import RunDialog from "./components/research/RunDialog";
+import { freshSearchSeed } from "./components/research/create/seeds";
 import RunContextMenu from "./components/research/RunContextMenu";
 import { PaneDivider, usePaneSizes } from "./components/research/PaneDivider";
 import PopulationView from "./components/research/PopulationView";
@@ -71,6 +72,7 @@ export default function App() {
   const [panel, setPanel] = useState<Panel>("population");
   const [newConfig, setNewConfig] = useState<RunConfig | null>(null);
   const [configurationTitle, setConfigurationTitle] = useState("New run");
+  const [sourceSeed, setSourceSeed] = useState<number | undefined>();
   const [showArchived, setShowArchived] = useState(false);
   const [runMenu, setRunMenu] = useState<{
     id: string;
@@ -409,7 +411,9 @@ export default function App() {
     );
   }
 
-  function openNew(base?: RunConfig, title = "New run") {
+  /** Every draft starts an independent search: a fresh recorded seed, never a
+   * silently reused one. Copies keep their source seed available for replay. */
+  function openNew(base?: RunConfig, title = "New run", replaySeed?: number) {
     const config = structuredClone(base ?? DEFAULT_RUN_CONFIG);
     if (!base)
       config.evaluationWorkers = Math.max(
@@ -419,6 +423,8 @@ export default function App() {
           lab.capacity.maxEvaluationWorkers || 1,
         ),
       );
+    config.randomSeed = freshSearchSeed();
+    setSourceSeed(replaySeed);
     setConfigurationTitle(title);
     setNewConfig(config);
   }
@@ -430,6 +436,7 @@ export default function App() {
         name: `${detail.config.name.slice(0, 73)} (fork)`,
       },
       "Fork run",
+      detail.config.randomSeed,
     );
   }
   function variant() {
@@ -444,6 +451,7 @@ export default function App() {
         initialization: "mutants",
       },
       "New variant from champion",
+      detail.config.randomSeed,
     );
   }
   function selectIndividual(value: Individual) {
@@ -1494,6 +1502,8 @@ export default function App() {
                         <HistoryView
                           history={detail.history}
                           snapshots={detail.snapshots}
+                          eliteCount={detail.config.eliteCount}
+                          populationSize={detail.config.populationSize}
                           selectedGeneration={requestedGeneration}
                           onSelectGeneration={(generation) => {
                             setRequestedGeneration(generation);
@@ -1630,6 +1640,7 @@ export default function App() {
           title={configurationTitle}
           maxWorkers={lab.capacity.maxEvaluationWorkers}
           busy={lab.busy}
+          sourceSeed={sourceSeed}
           onClose={() => setNewConfig(null)}
           onCreate={lab.create}
         />

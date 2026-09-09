@@ -18,6 +18,11 @@ import {
 import App from "./App";
 import { DEFAULT_RUN_CONFIG } from "./research/config";
 import { incentivesForConfig, presetIncentive } from "./research/incentives";
+import {
+  mutationChangeDistribution,
+  rateForExpectedChanges,
+} from "./research/mutation";
+import { decodePreview } from "./research/preview";
 import RunDialog from "./components/research/RunDialog";
 import type { VolumeProps } from "./components/Volume";
 import type { RunConfig } from "./research/types";
@@ -65,12 +70,64 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function field(label: string, value: string | number) {
-  fireEvent.change(screen.getByLabelText(label, { exact: true }), {
-    target: { value: String(value) },
-  });
+type Section = "Goal" | "Starting worlds" | "Search" | "Budget";
+/** The creator renders one section at a time; controls live where users find them. */
+const SECTION_OF: Record<string, Section> = {
+  Aggregation: "Goal",
+  "Add incentive": "Goal",
+  "State count": "Starting worlds",
+  "Simulation scale": "Starting worlds",
+  "Grid size": "Starting worlds",
+  "CA horizon": "Starting worlds",
+  "Seed pattern": "Starting worlds",
+  "Soup size N": "Starting worlds",
+  "Training seeds": "Starting worlds",
+  "Held-out seeds": "Starting worlds",
+  Initialization: "Search",
+  "Founder preset": "Search",
+  "Random rule sampling": "Search",
+  Population: "Search",
+  Elitism: "Search",
+  Elites: "Search",
+  Selection: "Search",
+  "Tournament size": "Search",
+  "Mutation policy": "Search",
+  "Mutation beta": "Search",
+  "Expected changes per child": "Search",
+  "Mutation probability": "Search",
+  Crossover: "Search",
+  "Crossover probability": "Search",
+  "Immigrant fraction": "Search",
+  "Search RNG seed": "Search",
+  "CPU workers": "Budget",
+  "Generation limit": "Budget",
+  "Stall pause": "Budget",
+  "Independent repeats": "Budget",
+  "Checkpoint interval (s)": "Budget",
+  "Archive every N generations": "Budget",
+  "Retained populations": "Budget",
+  "Evaluation cache entries": "Budget",
+};
+function goTo(section: Section, scope?: HTMLElement) {
+  fireEvent.click(
+    (scope ? within(scope) : screen).getByRole("button", { name: section }),
+  );
 }
-function dialog(initial = smallConfig(), maxWorkers = 6) {
+function control(label: string) {
+  const existing = screen.queryByLabelText(label, { exact: true });
+  if (existing) return existing;
+  const section =
+    SECTION_OF[label] ?? (/^Incentive \d+ weight$/.test(label) ? "Goal" : null);
+  if (section) goTo(section);
+  return screen.getByLabelText(label, { exact: true });
+}
+function field(label: string, value: string | number) {
+  fireEvent.change(control(label), { target: { value: String(value) } });
+}
+function summary() {
+  return screen.getByLabelText("Experiment summary");
+}
+function dialog(initial = smallConfig(), maxWorkers = 6, sourceSeed?: number) {
   const onCreate = vi.fn().mockResolvedValue(undefined),
     onClose = vi.fn();
   const view = render(
@@ -78,6 +135,7 @@ function dialog(initial = smallConfig(), maxWorkers = 6) {
       initial={initial}
       maxWorkers={maxWorkers}
       busy={false}
+      sourceSeed={sourceSeed}
       onCreate={onCreate}
       onClose={onClose}
     />,
@@ -93,46 +151,61 @@ async function submit(name = "Create paused") {
 describe("complete, immutable run configuration", () => {
   it("allows thirteen CPU workers when advertised by the server", async () => {
     const { onCreate } = dialog(smallConfig(), 13);
-    expect(
-      screen.getByLabelText("CPU workers", { exact: true }),
-    ).toHaveAttribute("max", "13");
+    expect(control("CPU workers")).toHaveAttribute("max", "13");
+    expect(screen.getByText("of 13 available")).toBeVisible();
     field("CPU workers", 13);
     await submit();
     expect(onCreate.mock.calls[0][0].evaluationWorkers).toBe(13);
   });
-  it("defaults new drafts to random rules and enables the preserved founder only on request", async () => {
+  it("defaults new drafts to random rules and shows the founder editor only in founder mode", async () => {
     const initial = structuredClone(DEFAULT_RUN_CONFIG);
     const { onCreate } = dialog(initial);
-    expect(
-      screen.getByLabelText("Initialization", { exact: true }),
-    ).toHaveValue("random");
+    expect(control("Initialization")).toHaveValue("random");
     expect(
       screen.getByLabelText("Random rule sampling", { exact: true }),
     ).toHaveValue("sparse");
     expect(
       screen.getByText(/Random rules and immigrants output empty \(0\) 80%/),
     ).toBeVisible();
-    const preset = screen.getByLabelText("Founder preset", { exact: true });
-    const genome = screen.getByRole("button", { name: "Edit founder genome" });
-    const outputs = screen.getByRole("button", { name: "Edit 45 outputs" });
-    for (const control of [preset, genome, outputs])
-      expect(control).toBeDisabled();
+    // Random mode never shows a founder: the example rule is not a contender.
+    expect(
+      screen.queryByLabelText("Founder preset", { exact: true }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Edit founder genome" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText(
         /Every contender starts with an independently randomized rule/,
       ),
     ).toBeVisible();
     field("Initialization", "mutants");
-    for (const control of [preset, genome, outputs])
-      expect(control).toBeEnabled();
+    const preset = screen.getByLabelText("Founder preset", { exact: true });
+    expect(preset).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Edit founder genome" }),
+    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Edit 45 outputs" })).toBeEnabled();
     field("Founder preset", PRESETS[2].id);
     field("Initialization", "random");
+    expect(
+      screen.queryByLabelText("Founder preset", { exact: true }),
+    ).not.toBeInTheDocument();
     field("Initialization", "mutants");
-    expect(preset).toHaveValue(PRESETS[2].id);
+    expect(screen.getByLabelText("Founder preset", { exact: true })).toHaveValue(
+      PRESETS[2].id,
+    );
+    expect(summary()).toHaveTextContent("64 rules, founder plus mutants");
     await submit();
     expect(onCreate.mock.calls[0][0]).toMatchObject({
       initialization: "mutants",
       seedGenome: PRESETS[2].genome,
+      elitism: "distinct",
+      eliteCount: 2,
+      tournamentSize: 2,
+      mutationPolicy: "heavyTailed",
+      mutationBeta: 1.5,
+      stallGenerations: 0,
     });
     expect(initial).toEqual(DEFAULT_RUN_CONFIG);
   });
@@ -235,6 +308,7 @@ describe("complete, immutable run configuration", () => {
       "1729, 1730, 1731, 1732",
     );
     field("Soup size N", 6);
+    goTo("Goal");
     fireEvent.click(
       screen.getByRole("button", { name: /Remove incentive 1:/ }),
     );
@@ -258,6 +332,7 @@ describe("complete, immutable run configuration", () => {
     field("Training seeds", "15, 16");
     field("Held-out seeds", "99");
     field("Seed pattern", "soup");
+    goTo("Goal");
     fireEvent.click(
       screen.getByRole("button", { name: /Remove incentive 1:/ }),
     );
@@ -334,6 +409,7 @@ describe("complete, immutable run configuration", () => {
     field("Seed pattern", "islands");
     field("Training seeds", "11, 22");
     field("Held-out seeds", "33, 44");
+    goTo("Goal");
     fireEvent.click(
       screen.getByRole("button", { name: /Remove incentive 1:/ }),
     );
@@ -345,17 +421,26 @@ describe("complete, immutable run configuration", () => {
     field("Incentive 3 weight", 0.3);
     field("Incentive 4 weight", 0.4);
     field("Population", 16);
+    field("Elitism", "slots");
     field("Elites", 3);
-    field("Selection", "rank");
     field("Tournament size", 5);
+    field("Selection", "rank");
+    expect(
+      screen.queryByLabelText("Tournament size", { exact: true }),
+    ).not.toBeInTheDocument();
     field("Crossover", "onePoint");
     field("Crossover probability", 0.6);
+    field("Mutation policy", "independent");
+    expect(
+      screen.queryByLabelText("Mutation beta", { exact: true }),
+    ).not.toBeInTheDocument();
     field("Mutation probability", 0.125);
     field("Immigrant fraction", 0.1);
     field("Search RNG seed", -73);
     field("Initialization", "random");
     field("CPU workers", 3);
     field("Generation limit", 20);
+    field("Stall pause", 40);
     field("Checkpoint interval (s)", 5);
     field("Archive every N generations", 4);
     field("Retained populations", 12);
@@ -366,6 +451,7 @@ describe("complete, immutable run configuration", () => {
       }),
     );
     expect(screen.getByText(/Configurations are immutable/)).toBeVisible();
+    goTo("Starting worlds");
     expect(
       screen.getByText(/CA timesteps per evaluation, not GA generations/),
     ).toBeVisible();
@@ -386,23 +472,28 @@ describe("complete, immutable run configuration", () => {
         }),
       ),
       populationSize: 16,
+      elitism: "slots",
       eliteCount: 3,
       selection: "rank",
       tournamentSize: 5,
       crossover: "onePoint",
       crossoverRate: 0.6,
+      mutationPolicy: "independent",
       mutationRate: 0.125,
       immigrantRate: 0.1,
       randomSeed: -73,
       initialization: "random",
       evaluationWorkers: 3,
       maxGenerations: 20,
+      stallGenerations: 40,
       checkpointSeconds: 5,
       snapshotEvery: 4,
       retainedSnapshots: 12,
       cacheSize: 512,
       resumeOnRestart: false,
     };
+    // Beta belongs to heavy-tailed mutation only; independent drafts drop it.
+    delete expected.mutationBeta;
     expect(onCreate).toHaveBeenCalledExactlyOnceWith(expected, true);
     expect(onClose).toHaveBeenCalledOnce();
     expect(initial).toEqual(original);
@@ -437,7 +528,7 @@ describe("complete, immutable run configuration", () => {
     expect(
       screen.getByRole("list", { name: "Scoring incentives" }),
     ).toHaveTextContent("Growth");
-    expect(screen.getByLabelText("Generation limit")).toHaveValue(0);
+    expect(control("Generation limit")).toHaveValue(0);
     expect(screen.getByText("0 = train until paused.")).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "Edit configuration JSON" }),
@@ -456,9 +547,10 @@ describe("complete, immutable run configuration", () => {
     ["CA horizon", "", /Steps must be finite/],
     ["Population", "7", /Population size must be finite/],
     ["Elites", "8", /Elite count must be finite/],
-    ["Mutation probability", "1.1", /Mutation rate must be finite/],
+    ["Mutation beta", "5", /Mutation beta must be finite/],
     ["Generation limit", "-1", /Maximum generations must be finite/],
     ["Generation limit", "1.5", /Maximum generations must be a safe integer/],
+    ["Stall pause", "-3", /Stall generations must be finite/],
     ["Training seeds", "1,,2", /comma-separated integers/],
     ["Held-out seeds", "1729", /must not overlap/],
   ])(
@@ -466,13 +558,34 @@ describe("complete, immutable run configuration", () => {
     async (label, value, error) => {
       const { onCreate, onClose } = dialog();
       field(label, value);
+      // The error must surface on the field itself, from any section.
+      goTo("Goal");
       await submit();
       expect(screen.getByRole("alert")).toHaveTextContent(error);
+      const input = screen.getByLabelText(label, { exact: true });
+      expect(input).toHaveAttribute("aria-invalid", "true");
+      expect(input).toHaveAccessibleDescription(error);
+      expect(
+        screen.getByRole("button", { name: SECTION_OF[label] }),
+      ).toHaveAttribute("aria-current", "true");
       expect(onCreate).not.toHaveBeenCalled();
       expect(onClose).not.toHaveBeenCalled();
       expect(http.mutations).toHaveLength(0);
     },
   );
+  it("rejects an out-of-range mutation probability under independent mutation", async () => {
+    const { onCreate } = dialog();
+    field("Mutation policy", "independent");
+    field("Mutation probability", 1.1);
+    await submit();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Mutation rate must be finite/,
+    );
+    expect(
+      screen.getByLabelText("Mutation probability", { exact: true }),
+    ).toHaveAttribute("aria-invalid", "true");
+    expect(onCreate).not.toHaveBeenCalled();
+  });
   it("keeps malformed or incomplete JSON editable and preserves validation errors while switching editors", async () => {
     const { onCreate } = dialog();
     fireEvent.click(
@@ -494,6 +607,7 @@ describe("complete, immutable run configuration", () => {
   it("edits the founder in a private 45-locus draft with a locked quiescent gene", async () => {
     const initial = smallConfig();
     const { onCreate } = dialog(initial);
+    goTo("Search");
     fireEvent.click(
       screen.getByRole("button", { name: "Edit founder genome" }),
     );
@@ -800,9 +914,10 @@ describe("API-backed research workbench", () => {
     expect(
       screen.getByRole("region", { name: "Run metrics" }),
     ).toHaveTextContent(String(fixture.state.evaluations));
+    // Paused playback shows the whole recorded history, however long it lived.
     expect(volumeProps()).toMatchObject({
       fitMode: "specimen",
-      visibleLayers: fixture.detail.config.steps,
+      visibleLayers: decodePreview(fixture.preview).playbackLayers,
       simulation: { size: fixture.detail.config.size },
     });
     expect(volumeProps().simulation.layers[0]).toEqual(
@@ -1250,10 +1365,13 @@ describe("API-backed research workbench", () => {
           ) as HTMLTextAreaElement
         ).value,
       );
+      // A fork is an independent search: everything copies except the seed.
       expect(copied).toEqual({
         ...source.config,
         name: `${source.config.name} (fork)`,
+        randomSeed: copied.randomSeed,
       });
+      expect(copied.randomSeed).not.toBe(source.config.randomSeed);
       expect(copied.seedGenome).toEqual(source.config.seedGenome);
       expect(copied.initialization).toBe("random");
       expect(http.mutations).toHaveLength(posts);
@@ -1262,7 +1380,14 @@ describe("API-backed research workbench", () => {
       );
       expect(http.mutations).toHaveLength(posts);
       fireEvent.click(fork);
-      field("Mutation probability", 0.2);
+      field("Mutation beta", 2);
+      const replay = screen.getByRole("button", { name: "Use source seed" });
+      expect(replay).toBeEnabled();
+      fireEvent.click(replay);
+      expect(
+        screen.getByLabelText("Search RNG seed", { exact: true }),
+      ).toHaveValue(source.config.randomSeed);
+      expect(replay).toBeDisabled();
       field("Incentive 2 weight", 5);
       fireEvent.click(screen.getByRole("button", { name: "Create paused" }));
       const request = http.pending("/api/runs", "POST");
@@ -1270,7 +1395,8 @@ describe("API-backed research workbench", () => {
       expect(payload).toEqual({
         config: {
           ...copied,
-          mutationRate: 0.2,
+          mutationBeta: 2,
+          randomSeed: source.config.randomSeed,
           incentives: [
             copied.incentives[0],
             { ...copied.incentives[1], weight: 5 },
@@ -1335,7 +1461,9 @@ describe("API-backed research workbench", () => {
       name: `${source.config.name} · variant`,
       seedGenome: source.snapshot!.champion.genome,
       initialization: "mutants",
+      randomSeed: config.randomSeed,
     });
+    expect(config.randomSeed).not.toBe(source.config.randomSeed);
     fireEvent.click(
       within(configDialog).getByRole("button", {
         name: "Close run configuration",
@@ -1438,6 +1566,7 @@ describe("API-backed research workbench", () => {
     const imported = screen.getByRole("dialog", {
       name: "New run from imported founder",
     });
+    goTo("Search", imported);
     expect(
       within(imported).getByLabelText("Initialization", { exact: true }),
     ).toHaveValue("mutants");
@@ -1488,12 +1617,368 @@ describe("API-backed research workbench", () => {
   });
 });
 
+describe("run creator sections, summary and repeats", () => {
+  it("navigates four sections with aria-current and keeps the draft across switches", () => {
+    dialog();
+    const nav = screen.getByRole("navigation", {
+      name: "Run configuration sections",
+    });
+    expect(within(nav).getAllByRole("button")).toHaveLength(4);
+    for (const name of ["Goal", "Starting worlds", "Search", "Budget"])
+      expect(within(nav).getByRole("button", { name })).toBeVisible();
+    expect(within(nav).getByRole("button", { name: "Goal" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    field("Population", 16);
+    field("Grid size", 25);
+    goTo("Goal");
+    expect(
+      screen.queryByLabelText("Population", { exact: true }),
+    ).not.toBeInTheDocument();
+    goTo("Search");
+    expect(
+      within(nav).getByRole("button", { name: "Search" }),
+    ).toHaveAttribute("aria-current", "true");
+    expect(within(nav).getByRole("button", { name: "Goal" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByLabelText("Population", { exact: true })).toHaveValue(
+      16,
+    );
+    expect(control("Grid size")).toHaveValue(25);
+    fireEvent.keyDown(within(nav).getByRole("button", { name: "Starting worlds" }), {
+      key: "ArrowDown",
+    });
+    expect(
+      within(nav).getByRole("button", { name: "Search" }),
+    ).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText("Run name")).toBeVisible();
+  });
+  it("describes the experiment in plain language and follows the draft live", () => {
+    dialog();
+    const panel = summary();
+    expect(panel).toHaveTextContent(
+      "8 rules · 1 deterministic world, seeds ignored · mean score · heavy-tailed mutation, about 3.7 changes per child (46% single) · 2 distinct elites · tournament of 2 · no immigrants · no stall pause · unlimited GA generations",
+    );
+    expect(panel).toHaveTextContent("8 CA timesteps per world");
+    field("Population", 64);
+    expect(panel).toHaveTextContent("64 rules");
+    expect(panel).toHaveTextContent("3 immigrants per generation");
+    field("Elitism", "slots");
+    field("Elites", 4);
+    expect(panel).toHaveTextContent("4 elite slots");
+    field("Selection", "rank");
+    expect(panel).toHaveTextContent("rank weighted");
+    field("Mutation policy", "independent");
+    expect(panel).toHaveTextContent(
+      "independent mutation, about 1.5 changes per child (22% unchanged clones)",
+    );
+    field("Aggregation", "minimum");
+    expect(panel).toHaveTextContent("worst-world score");
+    field("Generation limit", 20);
+    field("Stall pause", 30);
+    expect(panel).toHaveTextContent("pause after 30 stalled generations");
+    expect(panel).toHaveTextContent("20 GA generations");
+    field("Independent repeats", 3);
+    expect(panel).toHaveTextContent("3 independent repeats");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Starting worlds section" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Starting worlds" }),
+    ).toHaveAttribute("aria-current", "true");
+  });
+  it("counts effective worlds: cross ignores seeds, soup counts distinct training and held-out seeds", () => {
+    dialog();
+    expect(summary()).toHaveTextContent("1 deterministic world, seeds ignored");
+    field("Training seeds", "1, 2, 3");
+    expect(control("Training seeds")).toHaveValue("1, 2, 3");
+    expect(screen.getByLabelText("Effective worlds")).toHaveTextContent(
+      "1 deterministic world, seeds ignored",
+    );
+    expect(
+      screen.getByText(/Point and cross ignore fixture seeds/),
+    ).toBeVisible();
+    field("Training seeds", "1729");
+    field("Seed pattern", "soup");
+    expect(screen.getByLabelText("Effective worlds")).toHaveTextContent(
+      "4 training worlds, 2 held-out worlds",
+    );
+    expect(summary()).toHaveTextContent(
+      "9 × 9 soup: 4 training worlds, 2 held-out worlds",
+    );
+    field("Held-out seeds", "");
+    field("Training seeds", "5, 5, 6");
+    expect(screen.getByLabelText("Effective worlds")).toHaveTextContent(
+      "2 training worlds",
+    );
+    field("Seed pattern", "islands");
+    expect(summary()).toHaveTextContent("islands: 2 training worlds");
+    field("Selection", "lexicase");
+    expect(summary()).toHaveTextContent("lexicase over 3 worlds");
+  });
+  it("keeps expected changes per child and mutation probability in two-way sync", async () => {
+    const { onCreate } = dialog();
+    field("Mutation policy", "independent");
+    const expected = screen.getByLabelText("Expected changes per child", {
+      exact: true,
+    });
+    const probability = screen.getByLabelText("Mutation probability", {
+      exact: true,
+    });
+    expect(expected).toHaveValue(0.034 * 44);
+    field("Expected changes per child", 2.2);
+    expect(probability).toHaveValue(rateForExpectedChanges(5, 2.2));
+    expect(Number((probability as HTMLInputElement).value)).toBeCloseTo(0.05);
+    field("Mutation probability", 0.11);
+    expect(expected).toHaveValue(4.84);
+    expect(screen.getByLabelText("Mutation changes per child")).toHaveTextContent(
+      "Mean4.84",
+    );
+    await submit();
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      mutationPolicy: "independent",
+      mutationRate: 0.11,
+    });
+    expect(onCreate.mock.calls[0][0].mutationBeta).toBeUndefined();
+  });
+  it("reads out the change-count distribution for the default heavy-tailed draft", () => {
+    dialog(structuredClone(DEFAULT_RUN_CONFIG));
+    goTo("Search");
+    const distribution = mutationChangeDistribution(DEFAULT_RUN_CONFIG);
+    const [p0, p1, p2] = distribution.probabilities;
+    const readout = screen.getByLabelText("Mutation changes per child");
+    expect(screen.getByLabelText("Mutation beta", { exact: true })).toHaveValue(
+      1.5,
+    );
+    expect(readout).toHaveTextContent(`P(0)${(p0 * 100).toFixed(1)}%`);
+    expect(readout).toHaveTextContent(`P(1)${(p1 * 100).toFixed(1)}%`);
+    expect(readout).toHaveTextContent(`P(2)${(p2 * 100).toFixed(1)}%`);
+    expect(readout).toHaveTextContent(
+      `P(3+)${((1 - p0 - p1 - p2) * 100).toFixed(1)}%`,
+    );
+    expect(readout).toHaveTextContent(`Mean${distribution.mean.toFixed(2)}`);
+    expect(readout).toHaveTextContent("P(0)0.0%");
+    expect(readout).toHaveTextContent("P(1)45.6%");
+    expect(readout).toHaveTextContent("Mean3.66");
+    field("Mutation beta", 3);
+    expect(readout).toHaveTextContent(
+      `P(1)${(mutationChangeDistribution({ ...DEFAULT_RUN_CONFIG, mutationBeta: 3 }).probabilities[1] * 100).toFixed(1)}%`,
+    );
+  });
+  it("creates one run per independent repeat with distinct seeds and suffixed names", async () => {
+    const { onCreate, onClose } = dialog();
+    field("Independent repeats", 3);
+    await submit("Create & start");
+    expect(onCreate).toHaveBeenCalledTimes(3);
+    const configs = onCreate.mock.calls.map(([config]) => config as RunConfig);
+    expect(configs.map((config) => config.name)).toEqual([
+      "Fixture research · seed 1",
+      "Fixture research · seed 2",
+      "Fixture research · seed 3",
+    ]);
+    expect(new Set(configs.map((config) => config.randomSeed)).size).toBe(3);
+    expect(configs[0].randomSeed).toBe(smallConfig().randomSeed);
+    for (const config of configs) {
+      expect(Number.isSafeInteger(config.randomSeed)).toBe(true);
+      expect(config.randomSeed).toBeGreaterThanOrEqual(0);
+      expect(config.randomSeed).toBeLessThan(2 ** 31);
+    }
+    expect(onCreate.mock.calls.every(([, start]) => start === true)).toBe(true);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+  it("stops repeats at the first failure and keeps the dialog open with the error", async () => {
+    const { onCreate, onClose } = dialog();
+    onCreate
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("All CPU workers are allocated."));
+    field("Independent repeats", 4);
+    await submit();
+    expect(onCreate).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "All CPU workers are allocated.",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
+  it("draws a fresh search seed for every new run and offers a new one on demand", async () => {
+    render(<App />);
+    await http.reply("/api/runs", runList());
+    ResearchSocket.instances[0].hello();
+    fireEvent.click(screen.getAllByRole("button", { name: "New run" })[0]);
+    const creator = screen.getByRole("dialog", { name: "New run" });
+    fireEvent.click(within(creator).getByLabelText("Edit configuration JSON"));
+    const config = JSON.parse(
+      (
+        within(creator).getByLabelText(
+          "Configuration JSON",
+        ) as HTMLTextAreaElement
+      ).value,
+    ) as RunConfig;
+    expect(config.randomSeed).not.toBe(DEFAULT_RUN_CONFIG.randomSeed);
+    expect(Number.isSafeInteger(config.randomSeed)).toBe(true);
+    expect(config.randomSeed).toBeGreaterThanOrEqual(0);
+    expect(config.randomSeed).toBeLessThan(2 ** 31);
+    expect({ ...config, randomSeed: 1729 }).toEqual({
+      ...DEFAULT_RUN_CONFIG,
+      incentives: incentivesForConfig(DEFAULT_RUN_CONFIG),
+      evaluationWorkers: 2,
+    });
+    fireEvent.click(within(creator).getByLabelText("Use parameter fields"));
+    goTo("Search", creator);
+    expect(
+      screen.queryByRole("button", { name: "Use source seed" }),
+    ).not.toBeInTheDocument();
+    const seed = screen.getByLabelText("Search RNG seed", { exact: true });
+    expect(seed).toHaveValue(config.randomSeed);
+    fireEvent.click(screen.getByRole("button", { name: "New search seed" }));
+    expect(seed).not.toHaveValue(config.randomSeed);
+    expect(http.mutations).toHaveLength(0);
+  });
+  it("shows the source seed for copies and restores it in one click", () => {
+    dialog(smallConfig({ randomSeed: 4242 }), 6, 1729);
+    goTo("Search");
+    const seed = screen.getByLabelText("Search RNG seed", { exact: true });
+    expect(seed).toHaveValue(4242);
+    expect(
+      screen.getByText(/Identical seed and identical settings replay/),
+    ).toBeVisible();
+    const replay = screen.getByRole("button", { name: "Use source seed" });
+    expect(replay).toHaveAccessibleName("Use source seed");
+    fireEvent.click(replay);
+    expect(seed).toHaveValue(1729);
+    expect(replay).toBeDisabled();
+    expect(summary()).toHaveTextContent("search seed 1729");
+  });
+  it("scores five synthetic worlds per incentive and marks hard-constraint zeros", () => {
+    dialog();
+    const table = screen.getByRole("table", { name: "Score examples" });
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(6);
+    expect(
+      within(rows[0])
+        .getAllByRole("columnheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["Example", "Finite longevity", "Score", "Hard constraint"]);
+    const names = rows.slice(1).map(
+      (row) => within(row).getByRole("rowheader").querySelector("strong")!
+        .textContent,
+    );
+    expect(names).toEqual([
+      "Immediate extinction",
+      "Cutoff survivor",
+      "Contained finite life",
+      "Spatial edge contact",
+      "Sparse short life",
+    ]);
+    // 8 timesteps: lifetime 1 → 1/7; contained life ends at t≈5 → 5/7.
+    expect(rows[1]).toHaveTextContent("0.143");
+    expect(rows[3]).toHaveTextContent("0.714");
+    expect(rows[3]).toHaveTextContent("Passes");
+    expect(rows[2]).toHaveTextContent("Disqualified · alive at cutoff");
+    expect(within(rows[2]).getAllByRole("cell")[0]).toHaveTextContent("0.000");
+    expect(rows[4]).toHaveTextContent("Disqualified · edge contact");
+    fireEvent.click(screen.getByLabelText("Disqualify spatial edge contact"));
+    expect(
+      within(screen.getByRole("table", { name: "Score examples" })).getAllByRole(
+        "row",
+      )[4],
+    ).toHaveTextContent("Edge contact allowed");
+    field("Add incentive", "avoidReuse");
+    const updated = within(
+      screen.getByRole("table", { name: "Score examples" }),
+    ).getAllByRole("row");
+    expect(within(updated[0]).getAllByRole("columnheader")).toHaveLength(5);
+    // A sparse mover never reuses a position, so the reuse incentive scores 1.
+    expect(within(updated[5]).getAllByRole("cell")[1]).toHaveTextContent("1.000");
+  });
+  it("round-trips the new search primitives through JSON and fields", async () => {
+    const initial = smallConfig();
+    const { onCreate } = dialog(initial);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit configuration JSON" }),
+    );
+    const replacement: RunConfig = {
+      ...initial,
+      incentives: incentivesForConfig(initial),
+      seed: "islands",
+      trainingSeeds: [1, 2],
+      elitism: "slots",
+      selection: "lexicase",
+      mutationPolicy: "independent",
+      mutationRate: 0.05,
+      stallGenerations: 12,
+    };
+    delete replacement.mutationBeta;
+    field("Configuration JSON", JSON.stringify(replacement));
+    expect(summary()).toHaveTextContent("lexicase over 2 worlds");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use parameter fields" }),
+    );
+    expect(control("Elitism")).toHaveValue("slots");
+    expect(control("Selection")).toHaveValue("lexicase");
+    expect(
+      screen.queryByLabelText("Tournament size", { exact: true }),
+    ).not.toBeInTheDocument();
+    expect(control("Mutation policy")).toHaveValue("independent");
+    expect(control("Mutation probability")).toHaveValue(0.05);
+    expect(control("Stall pause")).toHaveValue(12);
+    expect(summary()).toHaveTextContent("2 elite slots");
+    expect(summary()).toHaveTextContent("pause after 12 stalled generations");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit configuration JSON" }),
+    );
+    expect(
+      JSON.parse(
+        (screen.getByLabelText("Configuration JSON") as HTMLTextAreaElement)
+          .value,
+      ),
+    ).toEqual(replacement);
+    await submit();
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith(replacement, false);
+  });
+  it("flags lexicase with a single training seed beside the control and on submit", async () => {
+    const { onCreate } = dialog();
+    field("Selection", "lexicase");
+    const selection = screen.getByLabelText("Selection", { exact: true });
+    expect(selection).toHaveAccessibleDescription(
+      /Lexicase needs at least two training seeds; this draft lists 1/,
+    );
+    await submit();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Lexicase selection needs at least 2 training seeds/,
+    );
+    expect(selection).toHaveAttribute("aria-invalid", "true");
+    expect(onCreate).not.toHaveBeenCalled();
+    field("Seed pattern", "islands");
+    field("Training seeds", "1, 2");
+    await submit();
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ selection: "lexicase", trainingSeeds: [1, 2] }),
+      false,
+    );
+  });
+  it("hides the budget details until requested and still submits them", async () => {
+    const { onCreate } = dialog();
+    goTo("Budget");
+    const details = screen.getByText("Details").closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("Details"));
+    expect(details).toHaveAttribute("open");
+    field("Evaluation cache entries", 64);
+    await submit();
+    expect(onCreate.mock.calls[0][0].cacheSize).toBe(64);
+  });
+});
+
 describe("editable research state counts", () => {
   it.each([2, 16])(
     "edits and submits every row of a %i-state founder, including output cycling",
     async (stateCount) => {
       const { onCreate } = dialog();
       field("State count", stateCount);
+      goTo("Search");
       if (stateCount === 2) field("Founder preset", "life");
       fireEvent.click(
         screen.getByRole("button", { name: `Edit ${stateCount * 9} outputs` }),

@@ -1,58 +1,51 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Code2, SlidersHorizontal, X } from "lucide-react";
-import {
-  founderPresets,
-  genomeId,
-  resizeGenome,
-  MIN_STATE_COUNT,
-  MAX_STATE_COUNT,
-} from "../../research/genome";
 import { validateRunConfig } from "../../research/config";
-import {
-  MAX_GRID_SIZE,
-  SIMULATION_SCALES,
-  maxHorizon,
-} from "../../research/limits";
 import type { RunConfig } from "../../research/types";
 import { trapDialogTab } from "../../dialogFocus";
 import { incentivesForConfig } from "../../research/incentives";
-import IncentiveList from "./IncentiveList";
 import RuleEditor from "../RuleEditor";
+import BudgetSection from "./create/BudgetSection";
+import ExperimentSummary from "./create/ExperimentSummary";
+import GoalSection from "./create/GoalSection";
+import SearchSection from "./create/SearchSection";
+import WorldsSection from "./create/WorldsSection";
+import { locateError, type DraftApi } from "./create/draft";
+import { listedSeeds, parseSeeds, repeatSeeds } from "./create/seeds";
+import {
+  experimentSummary,
+  SECTIONS,
+  type SectionId,
+  type SummaryItem,
+} from "./create/summary";
 
 interface Props {
   initial: RunConfig;
   title?: string;
   maxWorkers: number;
   busy: boolean;
+  /** The run this draft was copied from; enables an exact replay of its seed. */
+  sourceSeed?: number;
   onClose: () => void;
   onCreate: (config: RunConfig, start: boolean) => Promise<unknown>;
 }
-type NumericKey = {
-  [K in keyof RunConfig]-?: NonNullable<RunConfig[K]> extends number
-    ? K
-    : never;
-}[keyof RunConfig];
-const seeds = (text: string) =>
-  text.trim()
-    ? text.split(",").map((value) => {
-        if (!value.trim())
-          throw new Error("Fixture seeds must be comma-separated integers.");
-        const n = Number(value);
-        if (!Number.isSafeInteger(n))
-          throw new Error("Fixture seeds must be safe integers.");
-        return n;
-      })
-    : [];
+interface FieldError {
+  field: string;
+  message: string;
+}
+const MAX_NAME = 80;
 
 export default function RunDialog({
   initial,
   title = "New run",
   maxWorkers,
   busy,
+  sourceSeed,
   onClose,
   onCreate,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const nav = useRef<HTMLElement>(null);
   const [draft, setDraft] = useState<RunConfig>(() => ({
     ...structuredClone(initial),
     fixtureFailures: "aggregate",
@@ -62,59 +55,72 @@ export default function RunDialog({
   const [validationText, setValidationText] = useState(
     initial.validationSeeds.join(", "),
   );
+  const [section, setSection] = useState<SectionId>("goal");
+  const [repeats, setRepeats] = useState(1);
   const [raw, setRaw] = useState(false);
   const [json, setJson] = useState("");
   const [error, setError] = useState("");
+  const [fieldError, setFieldError] = useState<FieldError | null>(null);
   const [editGenome, setEditGenome] = useState(false);
   useEffect(() => {
     dialog.current?.showModal();
     return () => dialog.current?.close();
   }, []);
-  const update = <K extends keyof RunConfig>(key: K, value: RunConfig[K]) =>
-    setDraft((current) => ({ ...current, [key]: value }));
+  const api: DraftApi = {
+    draft,
+    update: (key, value) =>
+      setDraft((current) => ({ ...current, [key]: value })),
+    patch: (change) => setDraft((current) => change(current)),
+    errorFor: (label) =>
+      fieldError?.field === label ? fieldError.message : undefined,
+  };
   const composed = () =>
     validateRunConfig(
       raw
         ? JSON.parse(json)
         : {
             ...draft,
-            trainingSeeds: seeds(trainText),
-            validationSeeds: seeds(validationText),
+            trainingSeeds: parseSeeds(trainText, "Training seeds"),
+            validationSeeds: parseSeeds(validationText, "Held-out seeds"),
           },
     );
-  const numeric = (
-    key: NumericKey,
-    label: string,
-    min: number,
-    max: number,
-    step = 1,
-    note?: string,
-  ) => (
-    <label className="config-field">
-      <span>{label}</span>
-      <input
-        aria-label={label}
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={Number.isFinite(draft[key]) ? draft[key] : ""}
-        onChange={(event) => update(key, event.target.valueAsNumber)}
-      />
-      {note && <small>{note}</small>}
-    </label>
-  );
+  function fail(caught: unknown, fallback: string) {
+    const message = caught instanceof Error ? caught.message : fallback;
+    setError(message);
+    const located = raw ? null : locateError(message);
+    setFieldError(located ? { field: located.field, message } : null);
+    if (located?.section) setSection(located.section);
+  }
   async function submit(start: boolean) {
+    let config: RunConfig;
     try {
-      const config = composed();
-      setError("");
-      await onCreate(config, start);
-      onClose();
+      config = composed();
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Could not create run.",
-      );
+      fail(caught, "Invalid configuration.");
+      return;
     }
+    setError("");
+    setFieldError(null);
+    const count = Number.isInteger(repeats) ? Math.min(8, Math.max(1, repeats)) : 1;
+    const seeds = repeatSeeds(config.randomSeed, count);
+    for (let k = 0; k < seeds.length; k++) {
+      const suffix = ` · seed ${k + 1}`;
+      const run: RunConfig =
+        count > 1
+          ? {
+              ...config,
+              name: `${config.name.slice(0, MAX_NAME - suffix.length)}${suffix}`,
+              randomSeed: seeds[k],
+            }
+          : config;
+      try {
+        await onCreate(run, start);
+      } catch (caught) {
+        fail(caught, "Could not create run.");
+        return;
+      }
+    }
+    onClose();
   }
   function switchEditor() {
     try {
@@ -127,30 +133,65 @@ export default function RunDialog({
       setJson(JSON.stringify(config, null, 2));
       setRaw((value) => !value);
       setError("");
+      setFieldError(null);
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Invalid configuration.",
-      );
+      fail(caught, "Invalid configuration.");
     }
   }
-  const presets = founderPresets(draft.stateCount);
-  const preset =
-    presets.find((value) =>
-      value.genome.every((gene, index) => gene === draft.seedGenome[index]),
-    )?.id ?? "custom";
-  const fixtureCount =
-    trainText.split(",").filter((value) => value.trim()).length +
-    validationText.split(",").filter((value) => value.trim()).length;
-  const populationWork =
-    draft.size * draft.size * draft.steps * draft.populationSize * fixtureCount;
-  const scoringBytes =
-    2 * (draft.size + 2) ** 2 +
-    draft.steps * 8 +
-    8 * Math.ceil(draft.size ** 2 / 32);
+  function navigateKeys(event: KeyboardEvent<HTMLElement>) {
+    const index = SECTIONS.findIndex((value) => value.id === section);
+    const next =
+      event.key === "ArrowDown" || event.key === "ArrowRight"
+        ? (index + 1) % SECTIONS.length
+        : event.key === "ArrowUp" || event.key === "ArrowLeft"
+          ? (index + SECTIONS.length - 1) % SECTIONS.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? SECTIONS.length - 1
+              : null;
+    if (next === null) return;
+    event.preventDefault();
+    setSection(SECTIONS[next].id);
+    nav.current
+      ?.querySelectorAll<HTMLButtonElement>("button")
+      [next]?.focus();
+  }
+  const training = listedSeeds(trainText);
+  const validation = listedSeeds(validationText);
+  let summary: SummaryItem[] = [];
+  let summaryUnavailable: string | undefined;
+  if (raw) {
+    try {
+      const config = validateRunConfig(JSON.parse(json));
+      summary = experimentSummary(
+        config,
+        config.trainingSeeds,
+        config.validationSeeds,
+        repeats,
+        maxWorkers,
+      );
+    } catch (caught) {
+      summaryUnavailable = `The summary follows the JSON once it validates. ${
+        caught instanceof Error ? caught.message : ""
+      }`.trim();
+    }
+  } else
+    summary = experimentSummary(
+      draft,
+      training,
+      validation,
+      repeats,
+      maxWorkers,
+    );
+  const active = SECTIONS.find((value) => value.id === section)!;
+  const errorSection = fieldError
+    ? locateError(fieldError.message)?.section
+    : null;
   return (
     <dialog
       ref={dialog}
-      className="run-dialog"
+      className="run-dialog run-creator"
       aria-labelledby="run-dialog-title"
       onKeyDown={trapDialogTab}
       onCancel={(event) => {
@@ -180,495 +221,102 @@ export default function RunDialog({
           </button>
         </div>
       </header>
-      <div className="run-dialog-content">
-        {error && (
-          <div className="inline-error" role="alert">
-            {error}
-          </div>
+      <div className={`run-dialog-content creator-body ${raw ? "raw" : ""}`}>
+        {!raw && (
+          <nav
+            ref={nav}
+            className="creator-nav"
+            aria-label="Run configuration sections"
+            onKeyDown={navigateKeys}
+          >
+            {SECTIONS.map((value) => (
+              <button
+                key={value.id}
+                type="button"
+                className={`creator-nav-${value.id}`}
+                aria-current={section === value.id ? "true" : undefined}
+                data-error={errorSection === value.id ? "true" : undefined}
+                onClick={() => setSection(value.id)}
+              >
+                {value.label}
+                <small aria-hidden="true">{value.hint}</small>
+              </button>
+            ))}
+          </nav>
         )}
-        {raw ? (
-          <textarea
-            aria-label="Configuration JSON"
-            className="config-json-editor"
-            spellCheck={false}
-            value={json}
-            onChange={(event) => setJson(event.target.value)}
-          />
-        ) : (
-          <>
-            <label className="config-name">
-              <span>Name</span>
-              <input
-                autoFocus
-                aria-label="Run name"
-                value={draft.name}
-                maxLength={80}
-                onChange={(event) => update("name", event.target.value)}
-              />
-            </label>
-            <div className="config-grid">
-              <fieldset className="scoring-config">
-                <legend>Scoring incentives</legend>
-                <IncentiveList
-                  value={incentivesForConfig(draft)}
-                  onChange={(value) => update("incentives", value)}
-                />
-                <h3 className="incentive-section-label">Hard constraints</h3>
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={draft.boundaryPolicy?.spatial ?? false}
-                    onChange={(event) =>
-                      update("boundaryPolicy", {
-                        ...draft.boundaryPolicy,
-                        spatial: event.target.checked,
-                      })
-                    }
-                  />
-                  Disqualify spatial edge contact
-                </label>
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={draft.boundaryPolicy?.horizon ?? false}
-                    onChange={(event) =>
-                      update("boundaryPolicy", {
-                        ...draft.boundaryPolicy,
-                        horizon: event.target.checked,
-                      })
-                    }
-                  />
-                  Disqualify time cutoff contact
-                </label>
-                <p className="config-note">
-                  Any occupied cell touching the left, right, front or back
-                  edge, or remaining at the final timestep, counts as contact.
-                  These constraints override all incentives. A disqualified
-                  fixture contributes zero to the chosen aggregation. Held-out
-                  fixtures are assessed separately. Disable a boundary policy to
-                  reward avoiding contact with a soft incentive instead of
-                  disqualifying the fixture.
-                </p>
-                <label className="config-field">
-                  <span>Aggregation</span>
-                  <select
-                    aria-label="Aggregation"
-                    value={draft.aggregation}
-                    onChange={(event) =>
-                      update(
-                        "aggregation",
-                        event.target.value as RunConfig["aggregation"],
-                      )
-                    }
-                  >
-                    <option value="mean">Mean of fixtures</option>
-                    <option value="minimum">Worst fixture</option>
-                  </select>
-                </label>
-                <p className="config-note">
-                  Mean averages all fixture scores, including zero for each
-                  failure, so it rewards rules that fail less often. Worst
-                  fixture uses the lowest score, so any failure gives zero. One
-                  successful fixture scoring 0.8 and one failure give mean 0.4
-                  or worst 0. Held-out scores use the same aggregation
-                  separately.
-                </p>
-              </fieldset>
-              <fieldset>
-                <legend>Evaluation</legend>
-                <label className="config-field">
-                  <span>State count</span>
-                  <select
-                    aria-label="State count"
-                    value={draft.stateCount}
-                    onChange={(event) => {
-                      const stateCount = Number(event.target.value);
-                      setDraft((current) => ({
-                        ...current,
-                        stateCount,
-                        seedGenome: resizeGenome(
-                          current.seedGenome,
-                          stateCount,
-                        ),
-                      }));
-                    }}
-                  >
-                    {Array.from(
-                      { length: MAX_STATE_COUNT - MIN_STATE_COUNT + 1 },
-                      (_, i) => i + MIN_STATE_COUNT,
-                    ).map((count) => (
-                      <option key={count} value={count}>
-                        {count}
-                        {count === 2 ? " · binary" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p className="config-note">
-                  Includes empty state 0. Changing the count keeps existing rule
-                  rows, maps removed outputs to 1, and copies state 1's rule
-                  into new rows.
-                  {draft.stateCount === 2 &&
-                    " Life and HighLife are available under Founder preset."}
-                </p>
-                <label className="config-field">
-                  <span>Simulation scale</span>
-                  <select
-                    aria-label="Simulation scale"
-                    value={
-                      SIMULATION_SCALES.find(
-                        (scale) =>
-                          scale.size === draft.size &&
-                          scale.steps === draft.steps,
-                      )?.id ?? "custom"
-                    }
-                    onChange={(event) => {
-                      const scale = SIMULATION_SCALES.find(
-                        (value) => value.id === event.target.value,
-                      );
-                      if (scale)
-                        setDraft((current) => ({
-                          ...current,
-                          size: scale.size,
-                          steps: scale.steps,
-                        }));
-                    }}
-                  >
-                    <option value="custom" disabled>
-                      Custom
-                    </option>
-                    {SIMULATION_SCALES.map((scale) => (
-                      <option key={scale.id} value={scale.id}>
-                        {scale.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {numeric("size", "Grid size", 9, MAX_GRID_SIZE, 2)}
-                {numeric(
-                  "steps",
-                  "CA horizon",
-                  8,
-                  maxHorizon(draft.size),
-                  1,
-                  "CA timesteps per evaluation, not GA generations.",
-                )}
-                <p className="config-note">
-                  Up to {maxHorizon(draft.size).toLocaleString("en-US")}{" "}
-                  timesteps at this grid size. Larger grids and longer horizons
-                  increase evaluation time. The preview and fitness both use
-                  every timestep.
-                </p>
-                <label className="config-field">
-                  <span>Seed pattern</span>
-                  <select
-                    aria-label="Seed pattern"
-                    value={draft.seed}
-                    onChange={(event) => {
-                      const seed = event.target.value as RunConfig["seed"];
-                      setDraft((current) => ({
-                        ...current,
-                        seed,
-                        ...(seed === "soup"
-                          ? {
-                              soupSize:
-                                current.soupSize ?? Math.min(9, current.size),
-                            }
-                          : {}),
-                      }));
-                      if (
-                        seed === "soup" &&
-                        trainText.trim() === "1729" &&
-                        !validationText.trim()
-                      ) {
-                        setTrainText("1729, 1730, 1731, 1732");
-                        setValidationText("2718, 2719");
-                      }
-                    }}
-                  >
-                    <option value="point">Point</option>
-                    <option value="cross">Cross</option>
-                    <option value="islands">Islands</option>
-                    <option value="soup">Random soup</option>
-                  </select>
-                </label>
-                {draft.seed === "soup" && (
-                  <>
-                    {numeric(
-                      "soupSize",
-                      "Soup size N",
-                      1,
-                      draft.size,
-                      1,
-                      "Centered N × N square. Each cell is equally likely to be empty or any active state.",
-                    )}
-                    <p className="config-note">
-                      Each seed produces a different reproducible soup. All
-                      candidates train on the same set; held-out soups measure
-                      generalization. Choose Worst fixture to reward rules that
-                      work across every training soup.
-                    </p>
-                  </>
-                )}
-                <label className="config-field">
-                  <span>Training seeds</span>
-                  <input
-                    aria-label="Training seeds"
-                    value={trainText}
-                    onChange={(event) => setTrainText(event.target.value)}
-                  />
-                </label>
-                <label className="config-field">
-                  <span>Held-out seeds</span>
-                  <input
-                    aria-label="Held-out seeds"
-                    placeholder="Optional"
-                    value={validationText}
-                    onChange={(event) => setValidationText(event.target.value)}
-                  />
-                </label>
-                {(draft.seed === "point" || draft.seed === "cross") && (
-                  <p className="config-note">
-                    Point and cross ignore fixture seeds. Use islands or soup
-                    for distinct training and held-out fixtures.
-                  </p>
-                )}
-              </fieldset>
-              <fieldset>
-                <legend>Genetics</legend>
-                {numeric("populationSize", "Population", 8, 512)}
-                {numeric("eliteCount", "Elites", 0, draft.populationSize - 1)}
-                <label className="config-field">
-                  <span>Selection</span>
-                  <select
-                    aria-label="Selection"
-                    value={draft.selection}
-                    onChange={(event) =>
-                      update(
-                        "selection",
-                        event.target.value as RunConfig["selection"],
-                      )
-                    }
-                  >
-                    <option value="tournament">Tournament</option>
-                    <option value="rank">Rank weighted</option>
-                  </select>
-                </label>
-                {numeric(
-                  "tournamentSize",
-                  "Tournament size",
-                  2,
-                  Math.min(32, draft.populationSize),
-                )}
-                <label className="config-field">
-                  <span>Crossover</span>
-                  <select
-                    aria-label="Crossover"
-                    value={draft.crossover}
-                    onChange={(event) =>
-                      update(
-                        "crossover",
-                        event.target.value as RunConfig["crossover"],
-                      )
-                    }
-                  >
-                    <option value="uniform">Uniform</option>
-                    <option value="onePoint">One point</option>
-                    <option value="none">None</option>
-                  </select>
-                </label>
-                {numeric("crossoverRate", "Crossover probability", 0, 1, 0.05)}
-                {numeric(
-                  "mutationRate",
-                  "Mutation probability",
-                  0,
-                  1,
-                  0.005,
-                  "Independent probability per unlocked rule entry.",
-                )}
-                {numeric("immigrantRate", "Immigrant fraction", 0, 0.5, 0.01)}
-                {numeric(
-                  "randomSeed",
-                  "Search RNG seed",
-                  -Number.MAX_SAFE_INTEGER,
-                  Number.MAX_SAFE_INTEGER,
-                )}
-                <label className="config-field">
-                  <span>Initialization</span>
-                  <select
-                    aria-label="Initialization"
-                    value={draft.initialization}
-                    onChange={(event) =>
-                      update(
-                        "initialization",
-                        event.target.value as RunConfig["initialization"],
-                      )
-                    }
-                  >
-                    <option value="random">Random rules</option>
-                    <option value="mutants">Founder + mutations</option>
-                  </select>
-                </label>
-                <p className="config-note">
-                  {draft.initialization === "random"
-                    ? "Every contender starts with an independently randomized rule. The founder rule is not used for initialization."
-                    : "One contender keeps the founder rule; the others start as mutations of it. Mutation probability controls their initial variation."}
-                </p>
-                <label className="config-field">
-                  <span>Random rule sampling</span>
-                  <select
-                    aria-label="Random rule sampling"
-                    value={draft.randomRuleBias ?? "uniform"}
-                    onChange={(event) =>
-                      update(
-                        "randomRuleBias",
-                        event.target.value as RunConfig["randomRuleBias"],
-                      )
-                    }
-                  >
-                    <option value="sparse">
-                      Favor empty · rare edge births
-                    </option>
-                    <option value="uniform">Uniform outputs</option>
-                  </select>
-                </label>
-                <p className="config-note">
-                  {draft.randomRuleBias === "sparse"
-                    ? "Random rules and immigrants output empty (0) 80% of the time. For empty cells with 1 neighbor this rises to 98%, or 95% with 2–3 neighbors, making fast-spreading fronts rarer. Remaining probability is shared equally by live states."
-                    : "Random rules and immigrants give every output state equal probability. Existing runs retain this sampler unless changed in a new draft."}{" "}
-                  This controls random rule generation; mutation and crossover
-                  keep their usual behavior.
-                </p>
-              </fieldset>
-              <fieldset>
-                <legend>Execution & retention</legend>
-                {numeric(
-                  "evaluationWorkers",
-                  "CPU workers",
-                  1,
-                  Math.max(1, maxWorkers),
-                )}
-                {numeric(
-                  "maxGenerations",
-                  "Generation limit",
-                  0,
-                  1_000_000_000,
-                  1,
-                  "0 = train until paused.",
-                )}
-                {numeric(
-                  "checkpointSeconds",
-                  "Checkpoint interval (s)",
-                  2,
-                  300,
-                )}
-                {numeric(
-                  "snapshotEvery",
-                  "Archive every N generations",
-                  1,
-                  10000,
-                )}
-                {numeric("retainedSnapshots", "Retained populations", 2, 128)}
-                {numeric("cacheSize", "Evaluation cache entries", 0, 8192)}
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={draft.resumeOnRestart}
-                    onChange={(event) =>
-                      update("resumeOnRestart", event.target.checked)
-                    }
-                  />
-                  Resume running jobs after server restart
-                </label>
-              </fieldset>
-              <fieldset>
-                <legend>Founder rule</legend>
-                {draft.initialization === "random" && (
-                  <p className="config-note">
-                    Inactive for Random rules. This rule is only an example
-                    preview until the population is initialized.
-                  </p>
-                )}
-                <label className="config-field">
-                  <span>Preset</span>
-                  <select
-                    aria-label="Founder preset"
-                    disabled={draft.initialization === "random"}
-                    value={preset}
-                    onChange={(event) => {
-                      const value = presets.find(
-                        (p) => p.id === event.target.value,
-                      );
-                      if (value)
-                        setDraft((current) => ({
-                          ...current,
-                          seedGenome: [...value.genome],
-                          seed: value.seed,
-                        }));
-                    }}
-                  >
-                    <option value="custom" disabled>
-                      Custom
-                    </option>
-                    {presets.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="founder-genome"
-                  aria-label="Edit founder genome"
-                  disabled={draft.initialization === "random"}
-                  onClick={() => setEditGenome(true)}
-                >
-                  {draft.seedGenome.map((state, index) => (
-                    <i key={index} className={`gene-${state}`} />
-                  ))}
-                </button>
-                <div className="founder-caption">
-                  <code>{genomeId(draft.seedGenome)}</code>
-                  <button
-                    disabled={draft.initialization === "random"}
-                    onClick={() => setEditGenome(true)}
-                  >
-                    Edit {draft.seedGenome.length} outputs
-                  </button>
-                </div>
-                <p className="config-note">
-                  {draft.stateCount}-state, outer-totalistic Moore CA. State 0
-                  is empty; its empty-neighborhood rule is locked. Boundaries
-                  are fixed zero.
-                </p>
-                <dl className="cost-estimate">
-                  <div>
-                    <dt>Full population work ceiling</dt>
-                    <dd>
-                      {Number.isFinite(populationWork)
-                        ? populationWork.toLocaleString("en-US")
-                        : "—"}{" "}
-                      cell-steps
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Scoring typed buffers / evaluator</dt>
-                    <dd>
-                      {Number.isFinite(scoringBytes)
-                        ? (scoringBytes / 1024).toFixed(1)
-                        : "—"}{" "}
-                      KiB
-                    </dd>
-                  </div>
-                </dl>
-                <p className="config-note">
-                  Work is reduced by early extinction, sparsity and cache hits.
-                  Buffer size excludes process, population and cache memory.
-                </p>
-              </fieldset>
+        <div className="creator-main">
+          {error && (
+            <div className="inline-error" role="alert">
+              {error}
             </div>
-          </>
-        )}
+          )}
+          {raw ? (
+            <textarea
+              aria-label="Configuration JSON"
+              className="config-json-editor"
+              spellCheck={false}
+              value={json}
+              onChange={(event) => setJson(event.target.value)}
+            />
+          ) : (
+            <>
+              <label
+                className={`config-name ${api.errorFor("Run name") ? "has-error" : ""}`}
+              >
+                <span>Name</span>
+                <input
+                  autoFocus
+                  aria-label="Run name"
+                  value={draft.name}
+                  maxLength={MAX_NAME}
+                  aria-invalid={api.errorFor("Run name") ? true : undefined}
+                  onChange={(event) => api.update("name", event.target.value)}
+                />
+              </label>
+              <section
+                className={`creator-section creator-section-${section}`}
+                aria-labelledby="creator-section-title"
+              >
+                <header className="creator-section-header">
+                  <h3 id="creator-section-title">{active.label}</h3>
+                  <p>{active.description}</p>
+                </header>
+                {section === "goal" && <GoalSection api={api} />}
+                {section === "worlds" && (
+                  <WorldsSection
+                    api={api}
+                    trainText={trainText}
+                    validationText={validationText}
+                    onTrainText={setTrainText}
+                    onValidationText={setValidationText}
+                  />
+                )}
+                {section === "search" && (
+                  <SearchSection
+                    api={api}
+                    sourceSeed={sourceSeed}
+                    trainingSeedCount={training.length}
+                    onEditGenome={() => setEditGenome(true)}
+                  />
+                )}
+                {section === "budget" && (
+                  <BudgetSection
+                    api={api}
+                    maxWorkers={maxWorkers}
+                    repeats={repeats}
+                    onRepeats={setRepeats}
+                    fixtureCount={training.length + validation.length}
+                  />
+                )}
+              </section>
+            </>
+          )}
+        </div>
+        <ExperimentSummary
+          items={summary}
+          unavailable={summaryUnavailable}
+          onSelectSection={raw ? undefined : setSection}
+        />
       </div>
       <footer className="dialog-footer">
         <span>
@@ -691,7 +339,7 @@ export default function RunDialog({
         open={editGenome}
         genome={draft.seedGenome}
         onClose={() => setEditGenome(false)}
-        onApply={(value) => update("seedGenome", value)}
+        onApply={(value) => api.update("seedGenome", value)}
       />
     </dialog>
   );

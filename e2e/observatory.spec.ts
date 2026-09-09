@@ -8,6 +8,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
   type Page,
   type TestInfo,
 } from "@playwright/test";
@@ -71,6 +72,15 @@ async function checkpoint(
   const response = await request.get(`/api/runs/${id}/checkpoint`);
   expect(response.ok()).toBe(true);
   return response.json();
+}
+/** The creator shows one section at a time: Goal, Starting worlds, Search, Budget. */
+async function section(
+  dialog: Locator,
+  name: "Goal" | "Starting worlds" | "Search" | "Budget",
+) {
+  const button = dialog.getByRole("button", { name, exact: true });
+  await button.click();
+  await expect(button).toHaveAttribute("aria-current", "true");
 }
 async function open(page: Page) {
   await page.goto("/");
@@ -162,15 +172,22 @@ async function createRun(
       ...config,
       incentives: undefined,
     });
+  // Beta belongs to heavy-tailed mutation only.
+  if (config.mutationPolicy === "independent") delete config.mutationBeta;
   await editor.fill(JSON.stringify(config, null, 2));
   // Switching back verifies JSON is accepted by the same editable fields users use.
   await dialog.getByRole("button", { name: "Use parameter fields" }).click();
+  await section(dialog, "Starting worlds");
   await expect(
     dialog.getByRole("spinbutton", { name: "Grid size", exact: true }),
   ).toHaveValue(String(config.size));
+  await section(dialog, "Budget");
   await expect(
     dialog.getByRole("spinbutton", { name: "Generation limit", exact: true }),
   ).toHaveValue(String(config.maxGenerations));
+  await expect(
+    dialog.getByRole("complementary", { name: "Experiment summary" }),
+  ).toContainText(`${config.populationSize} rules`);
   const response = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/runs") &&
@@ -259,6 +276,12 @@ test("new runs default to random contenders while founder mode stays opt-in", as
     .click();
   const dialog = page.getByRole("dialog", { name: "New run", exact: true });
   await expect(
+    dialog.getByRole("complementary", { name: "Experiment summary" }),
+  ).toContainText(
+    "64 rules · 1 deterministic world, seeds ignored · mean score · heavy-tailed mutation, about 3.7 changes per child (46% single) · 2 distinct elites · tournament of 2 · 3 immigrants per generation · no stall pause · unlimited GA generations",
+  );
+  await section(dialog, "Search");
+  await expect(
     dialog.getByLabel("Initialization", { exact: true }),
   ).toHaveValue("random");
   await expect(
@@ -273,24 +296,35 @@ test("new runs default to random contenders while founder mode stays opt-in", as
   await dialog
     .getByLabel("Random rule sampling", { exact: true })
     .selectOption("sparse");
-  await expect(
-    dialog.getByLabel("Founder preset", { exact: true }),
-  ).toBeDisabled();
+  // Random mode has no founder: the editor appears only for founder mode.
+  await expect(dialog.getByLabel("Founder preset", { exact: true })).toHaveCount(
+    0,
+  );
   await expect(
     dialog.getByRole("button", { name: "Edit founder genome" }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await expect(
     dialog.getByText(
       /Every contender starts with an independently randomized rule/,
     ),
   ).toBeVisible();
+  await expect(dialog.getByLabel("Mutation beta", { exact: true })).toHaveValue(
+    "1.5",
+  );
+  await expect(
+    dialog.getByLabel("Mutation changes per child", { exact: true }),
+  ).toContainText("P(1)45.6%");
   // Keep initialization untouched; reduce only the workload for this disposable run.
   await dialog
     .getByLabel("Run name", { exact: true })
     .fill(`e2e-random-default-${Date.now()}`);
+  await dialog.getByLabel("Population", { exact: true }).fill("8");
+  await section(dialog, "Starting worlds");
   await dialog.getByLabel("Grid size", { exact: true }).fill("9");
   await dialog.getByLabel("CA horizon", { exact: true }).fill("8");
-  await dialog.getByLabel("Population", { exact: true }).fill("8");
+  await expect(
+    dialog.getByLabel("Effective worlds", { exact: true }),
+  ).toContainText("1 deterministic world, seeds ignored");
   await screenArtifact(page, testInfo, "random-default-dialog");
   const creating = page.waitForResponse(
     (response) =>
@@ -306,6 +340,15 @@ test("new runs default to random contenders while founder mode stays opt-in", as
   createdIds.add(run.summary.id);
   expect(run.config.initialization).toBe("random");
   expect(run.config.randomRuleBias).toBe("sparse");
+  expect(run.config).toMatchObject({
+    elitism: "distinct",
+    eliteCount: 2,
+    tournamentSize: 2,
+    mutationPolicy: "heavyTailed",
+    mutationBeta: 1.5,
+    stallGenerations: 0,
+  });
+  expect(run.config.randomSeed).not.toBe(1729);
   await expect(
     page.getByText("Example rule · population not initialized", {
       exact: true,
@@ -435,6 +478,7 @@ test("boundary settings disqualify spatial contact in the real evaluator and sho
     seed: "islands",
     trainingSeeds: [1],
     validationSeeds: [],
+    mutationPolicy: "independent",
     mutationRate: 0,
     immigrantRate: 0,
   });
@@ -465,10 +509,16 @@ test("boundary settings disqualify spatial contact in the real evaluator and sho
   await expect(horizon).toBeChecked();
   await spatial.uncheck();
   await horizon.uncheck();
+  const examples = dialog.getByRole("table", { name: "Score examples" });
+  await expect(examples.getByRole("row")).toHaveCount(6);
+  await expect(examples).not.toContainText("Disqualified");
   await dialog.getByRole("button", { name: "Edit configuration JSON" }).click();
   const editor = dialog.getByRole("textbox", { name: "Configuration JSON" });
+  expect(JSON.parse(await editor.inputValue()).boundaryPolicy).toEqual({
+    spatial: false,
+    horizon: false,
+  });
   const config = {
-    ...JSON.parse(await editor.inputValue()),
     ...run.config,
     name: `e2e-allowed-${Date.now()}`,
     boundaryPolicy: { spatial: false, horizon: false },
@@ -515,11 +565,17 @@ test("the default finite-longevity run uses deep scale and previews its full 2,0
     .click();
   const dialog = page.getByRole("dialog", { name: "New run", exact: true });
   await expect(
-    dialog.getByLabel("Initialization", { exact: true }),
-  ).toHaveValue("random");
-  await dialog
-    .getByLabel("Initialization", { exact: true })
-    .selectOption("mutants");
+    dialog.getByRole("list", { name: "Scoring incentives" }),
+  ).toContainText("Finite longevity");
+  await expect(dialog).toContainText(
+    "Still alive scores zero for this incentive",
+  );
+  // The worked examples show the horizon rule concretely: survivors score zero.
+  const examples = dialog.getByRole("table", { name: "Score examples" });
+  await expect(
+    examples.getByRole("row", { name: /Cutoff survivor/ }),
+  ).toContainText("Disqualified · alive at cutoff");
+  await section(dialog, "Starting worlds");
   await expect(
     dialog.getByRole("spinbutton", { name: "Grid size", exact: true }),
   ).toHaveValue("129");
@@ -529,12 +585,16 @@ test("the default finite-longevity run uses deep scale and previews its full 2,0
   await expect(
     dialog.getByRole("combobox", { name: "Simulation scale" }),
   ).toHaveValue("deep");
+  await section(dialog, "Search");
   await expect(
-    dialog.getByRole("list", { name: "Scoring incentives" }),
-  ).toContainText("Finite longevity");
-  await expect(dialog).toContainText(
-    "Still alive scores zero for this incentive",
-  );
+    dialog.getByLabel("Initialization", { exact: true }),
+  ).toHaveValue("random");
+  await dialog
+    .getByLabel("Initialization", { exact: true })
+    .selectOption("mutants");
+  await expect(
+    dialog.getByRole("button", { name: "Edit founder genome" }),
+  ).toBeVisible();
   await dialog
     .getByRole("textbox", { name: "Run name", exact: true })
     .fill(`e2e-default-depth-${Date.now()}`);
@@ -723,17 +783,30 @@ test("Fork edits parameters for a fresh run while checkpoint import retains exac
   const copied = JSON.parse(
     await creator.getByLabel("Configuration JSON").inputValue(),
   );
+  // A fork is a new independent search: every parameter copies except the seed.
   expect(copied).toEqual({
     ...original.config,
     name: `${original.config.name} (fork)`,
+    randomSeed: copied.randomSeed,
   });
+  expect(copied.randomSeed).not.toBe(original.config.randomSeed);
   expect(observations.get(page)!.mutations).toHaveLength(posts);
   await creator.getByLabel("Close run configuration").click();
   expect(observations.get(page)!.mutations).toHaveLength(posts);
   await page.getByRole("button", { name: "Fork run" }).click();
   creator = page.getByRole("dialog", { name: "Fork run", exact: true });
+  await section(creator, "Starting worlds");
   await creator.getByLabel("CA horizon", { exact: true }).fill("40");
-  await creator.getByLabel("Mutation probability", { exact: true }).fill("0.2");
+  await section(creator, "Search");
+  await creator.getByLabel("Mutation beta", { exact: true }).fill("2");
+  const replay = creator.getByRole("button", { name: "Use source seed" });
+  await expect(replay).toBeEnabled();
+  await replay.click();
+  await expect(
+    creator.getByLabel("Search RNG seed", { exact: true }),
+  ).toHaveValue(String(original.config.randomSeed));
+  await expect(replay).toBeDisabled();
+  await section(creator, "Goal");
   await creator.getByLabel("Incentive 2 weight").fill("3");
   await screenArtifact(page, testInfo, "editable-fork-parameters");
   const creating = page.waitForResponse(
@@ -751,7 +824,8 @@ test("Fork edits parameters for a fresh run while checkpoint import retains exac
   expect(fork.config).toEqual({
     ...copied,
     steps: 40,
-    mutationRate: 0.2,
+    mutationBeta: 2,
+    randomSeed: original.config.randomSeed,
     incentives: [copied.incentives[0], { ...copied.incentives[1], weight: 3 }],
   });
   expect(fork.summary).toMatchObject({
@@ -937,9 +1011,13 @@ test("finite run exposes real ancestry, retained generations, CA closeups and im
   const variant = page.getByRole("dialog", {
     name: "New variant from champion",
   });
+  await section(variant, "Search");
+  await expect(
+    variant.getByLabel("Initialization", { exact: true }),
+  ).toHaveValue("mutants");
   await variant
-    .getByRole("spinbutton", { name: "Mutation probability", exact: true })
-    .fill("0.07");
+    .getByRole("spinbutton", { name: "Mutation beta", exact: true })
+    .fill("2.5");
   await variant
     .getByRole("button", { name: "Close run configuration" })
     .click();
@@ -977,6 +1055,11 @@ test("mobile controls create and inspect a real run without a clipped configurat
   const bounds = (await dialog.boundingBox())!;
   expect(bounds.x).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(391);
+  // Sections stack: the navigation, a section and the summary all fit.
+  await expect(
+    dialog.getByRole("complementary", { name: "Experiment summary" }),
+  ).toBeInViewport();
+  await section(dialog, "Budget");
   await dialog
     .getByRole("spinbutton", { name: "CPU workers", exact: true })
     .fill("1");
@@ -998,15 +1081,24 @@ for (const stateCount of [2, 16]) {
       .first()
       .click();
     const dialog = page.getByRole("dialog", { name: "New run", exact: true });
-    await dialog
-      .getByLabel("Initialization", { exact: true })
-      .selectOption("mutants");
+    await section(dialog, "Starting worlds");
     await dialog
       .getByRole("combobox", { name: "State count", exact: true })
       .selectOption(String(stateCount));
     await dialog
       .getByRole("combobox", { name: "Simulation scale", exact: true })
       .selectOption("quick");
+    await section(dialog, "Budget");
+    await dialog
+      .getByRole("spinbutton", { name: "CPU workers", exact: true })
+      .fill("1");
+    await dialog
+      .getByRole("spinbutton", { name: "Generation limit", exact: true })
+      .fill("1");
+    await section(dialog, "Search");
+    await dialog
+      .getByLabel("Initialization", { exact: true })
+      .selectOption("mutants");
     if (stateCount === 2)
       await dialog
         .getByRole("combobox", { name: "Founder preset", exact: true })
@@ -1014,12 +1106,6 @@ for (const stateCount of [2, 16]) {
     await dialog
       .getByRole("spinbutton", { name: "Population", exact: true })
       .fill("8");
-    await dialog
-      .getByRole("spinbutton", { name: "CPU workers", exact: true })
-      .fill("1");
-    await dialog
-      .getByRole("spinbutton", { name: "Generation limit", exact: true })
-      .fill("1");
     await dialog
       .getByRole("button", {
         name: `Edit ${stateCount * 9} outputs`,
@@ -1384,8 +1470,14 @@ test("weighted custom incentives are edited safely and scored by the VM", async 
   ).toBeChecked();
   await dialog.getByLabel("Edit configuration JSON").click();
   const json = dialog.getByLabel("Configuration JSON");
+  // Every contender must equal the all-zero founder, so mutation is switched
+  // off under the independent policy (heavy-tailed always changes a locus).
+  const { mutationBeta: _beta, ...defaults } = JSON.parse(
+    await json.inputValue(),
+  );
+  void _beta;
   const config = {
-    ...JSON.parse(await json.inputValue()),
+    ...defaults,
     initialization: "mutants",
     name: `e2e-incentives-${Date.now()}`,
     size: 9,
@@ -1394,6 +1486,7 @@ test("weighted custom incentives are edited safely and scored by the VM", async 
     seedGenome: Array(45).fill(0),
     populationSize: 8,
     eliteCount: 2,
+    mutationPolicy: "independent",
     mutationRate: 0,
     immigrantRate: 0,
     evaluationWorkers: 1,

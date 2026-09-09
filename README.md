@@ -66,18 +66,48 @@ The public website uses Vercel plus a persistent VM backend. See
   failed fixture. Older runs keep their recorded failure policy.
 - **Initialization**: new runs default to independent random rules for every
   contender. Founder + mutations is an opt-in local search around one rule.
-  Founder controls are inactive in Random rules; the pre-initialization render
-  is labeled as an example, not a contender. Existing runs and parameter forks
-  retain their configured initialization.
+  The founder preset and genome editor appear only in founder mode; the
+  pre-initialization render is labeled as an example, not a contender. Existing
+  runs and parameter forks retain their configured initialization.
   New drafts favor empty outputs (80%), with especially rare births at the
   growing edge (98% empty with one neighbor, 95% with two or three). The
   **Random rule sampling** control also applies to immigrants. Live outputs share
   the remaining probability equally; mutation and crossover are unchanged.
   Older runs retain uniform sampling and exact checkpoint continuation.
-- **New run**: parameter fields or complete JSON configuration. Population,
-  elitism, tournament/rank selection, crossover type/probability, per-locus
-  mutation, immigrants, initialization, search RNG, fixture seeds, scoring
-  weights, lattice/horizon, worker allocation, stopping and retention settings.
+- **New run**: a full-width creator with four directly navigable sections and a
+  persistent **Experiment summary** that restates the draft in plain language
+  (rules, effective worlds, aggregation, mutation size, elites, selection,
+  immigrants per generation, stall pause, generation limit). Switching sections
+  keeps the draft; validation errors appear beside the affected control as well
+  as in the alert. **Goal**: weighted incentives, hard constraints, aggregation
+  and a **Score examples** table that scores five synthetic worlds (immediate
+  extinction, cutoff survivor, contained finite life, edge contact, sparse short
+  life) with the current incentives and shows which a hard constraint would zero.
+  **Starting worlds**: state count, scale, grid, CA horizon, seed pattern, soup
+  size and fixture seeds with the *effective* distinct-world count; point and
+  cross report "1 deterministic world, seeds ignored". **Search**: initialization,
+  population, **Elitism** (distinct genomes or slots) with the elite count,
+  tournament / rank weighted / lexicase selection, **Mutation policy**
+  (heavy-tailed with **Mutation beta**, or independent per output with
+  **Expected changes per child** kept in sync with the raw probability) plus a
+  live P(0)/P(1)/P(2)/P(3+) change-count readout, crossover, immigrants with the
+  actual per-generation count, and the search RNG seed. **Budget**: CPU workers
+  against the server cap, generation limit, **Stall pause**, **Independent
+  repeats** and a collapsible Details group for checkpoints, retention, cache
+  and restart recovery. The JSON editor remains available and round-trips every
+  field. New drafts default to two distinct elites, tournaments of two and
+  heavy-tailed mutation with beta 1.5 (about 3.7 changes per child); saved runs
+  keep their recorded operators.
+- **Search seeds and repeats**: every time the creator opens (new run, fork or
+  variant) it draws a fresh recorded search seed, so a new run is an independent
+  search rather than a silent replay of 1729. Forks and variants show the source
+  seed and **Use source seed** restores it for an exact replay of identical
+  settings. **Independent repeats** (1–8) creates that many runs with distinct
+  fresh seeds, named `… · seed k`, queued exactly like a single create; the
+  first failure stops the sequence and keeps the dialog open.
+- **Stall pause**: a run with a stall pause set pauses itself after that many
+  generations without a new record. It is paused, not completed: the population
+  is preserved and Start resumes it.
 - **Start / Pause / Step**: generation 0 evaluates the initial population;
   each following generation breeds from the retained population. A generation
   limit of `0` is unlimited. Closing every browser does not stop a run.
@@ -100,9 +130,10 @@ The public website uses Vercel plus a persistent VM backend. See
 - **Compare**: retained history on a generation or evaluation-count axis.
   Different evaluation configurations are flagged as not directly comparable.
 - **Fork**: reopens the run creator with a copy of the selected run's parameters,
-  including its configured founder and incentives. Edit them and choose Create
-  paused or Create & start to initialize a fresh population. Opening or cancelling
-  the dialog creates nothing and never changes the source run. Fork works before
+  including its configured founder and incentives, under a fresh search seed
+  (the source seed is one click away). Edit them and choose Create paused or
+  Create & start to initialize a fresh population. Opening or cancelling the
+  dialog creates nothing and never changes the source run. Fork works before
   the source has initialized, too.
 - **Checkpoint / Export / Import**: preserve and restore the complete population,
   RNG state, IDs, ancestry, bounded fitness cache and counters. Use checkpoint
