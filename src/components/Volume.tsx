@@ -13,12 +13,12 @@ import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
 import { OrbitControls, OrthographicCamera } from "@react-three/drei";
 import GalleryViewport, {
   GalleryComposition,
-} from "../rendering/GalleryViewport";
+} from "../rendering/GalleryViewport.tsx";
 import { galleryLayout, galleryWindow } from "../research/gallery";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import TechnicalStage from "../rendering/TechnicalStage";
-import SimulationBounds from "../rendering/SimulationBounds";
+import SimulationBounds from "../rendering/SimulationBounds.tsx";
 import { simulationBounds, cutoffHeight } from "../rendering/simulationBounds";
 import DenseVolume from "./DenseVolume";
 import {

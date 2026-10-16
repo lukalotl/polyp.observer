@@ -3,7 +3,7 @@ import type { RunConfig } from "../../../research/types";
 import IncentiveList from "../IncentiveList";
 import type { DraftApi } from "./draft";
 import { FieldError, SelectField } from "./fields";
-import ScoreExamples from "./ScoreExamples";
+import ScoreExamples from "./ScoreExamples.tsx";
 
 export default function GoalSection({ api }: { api: DraftApi }) {
   const { draft, update, errorFor } = api;
